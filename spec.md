@@ -95,7 +95,7 @@ An AppImage is not part of the MVP. It can be reconsidered after Flatpak validat
 - Shows the active saved layout.
 - Camera tiles preserve their configured positions.
 - Each tile may show a camera name and compact connection state overlay.
-- Double-clicking a tile expands it within the application; the exact interaction will be finalized during UI implementation.
+- Double-clicking a tile expands it within the application without rebuilding its pipeline; Escape or another double-click restores the grid.
 - Audio can be enabled for one camera at a time.
 
 #### Layout-edit mode
@@ -111,7 +111,7 @@ An AppImage is not part of the MVP. It can be reconsidered after Flatpak validat
 - Starts fullscreen on the configured startup view.
 - Hides editing controls and, after inactivity, the pointer.
 - Does not exit merely because streams or the network are unavailable.
-- Provides a deliberate keyboard action to leave fullscreen; layout editing remains separately protected from accidental activation.
+- F11 leaves or re-enters the complete kiosk state; layout editing remains unavailable until kiosk mode is exited.
 
 ### 6.2 Main screens and dialogs
 
@@ -296,6 +296,7 @@ Planned interface:
 camview [OPTIONS]
 
 --kiosk                 Start fullscreen in kiosk mode
+--windowed              Ignore kiosk-on-start and open with normal controls
 --view <ID_OR_NAME>      Override the configured startup view
 --config <PATH>          Use an alternate configuration file
 --log <FILTER>           Override the tracing filter
@@ -430,7 +431,6 @@ These do not block M0 or M1:
 
 - Final reverse-DNS application ID, required before publishing a Flatpak.
 - Open-source license and public repository location.
-- Exact kiosk escape/edit keyboard shortcuts.
 - Whether credentials move to Secret Service before the first public release.
 - Whether expanded tiles dynamically switch from substream to main stream.
 

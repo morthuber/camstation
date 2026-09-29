@@ -13,8 +13,12 @@ pub(crate) const APPLICATION_ID: &str = "io.github.orthuber.Camview";
 #[command(author, version, about)]
 pub(crate) struct Options {
     /// Start fullscreen in kiosk mode.
-    #[arg(long)]
+    #[arg(long, conflicts_with = "windowed")]
     pub(crate) kiosk: bool,
+
+    /// Ignore kiosk-on-start and open with normal window controls.
+    #[arg(long, conflicts_with = "kiosk")]
+    pub(crate) windowed: bool,
 
     /// Override the configured startup view by ID or name.
     #[arg(long, value_name = "ID_OR_NAME")]
@@ -57,4 +61,19 @@ pub(crate) fn run(options: Options) {
 
     // Clap owns Camview's command line; do not let GApplication parse it again.
     let _exit_code = application.run_with_args(&["camview"]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn kiosk_and_windowed_are_mutually_exclusive() {
+        assert!(Options::try_parse_from(["camview", "--kiosk", "--windowed"]).is_err());
+        assert!(
+            Options::try_parse_from(["camview", "--windowed"])
+                .unwrap()
+                .windowed
+        );
+    }
 }

@@ -1,5 +1,8 @@
+mod layout;
+
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::time::Duration;
 
 use anyhow::Result;
 use gtk4::prelude::*;
@@ -8,11 +11,15 @@ use uuid::Uuid;
 use crate::application::Options;
 use crate::config::{AppConfig, CameraConfig, ConfigStore, MAX_GRID_EXTENT, ViewConfig, ViewTile};
 use crate::media::{CameraController, ConnectionTest, DecoderInfo, PlaybackEvent, PlaybackState};
+use layout::LayoutError;
 
 const MAX_CAMERAS: usize = 10;
 
 struct AppState {
     grid: gtk4::Grid,
+    window: gtk4::glib::WeakRef<gtk4::ApplicationWindow>,
+    controls: gtk4::Box,
+    edit_controls: gtk4::Box,
     error_label: gtk4::Label,
     view_dropdown: gtk4::DropDown,
     view_ids: Vec<Uuid>,
@@ -20,7 +27,19 @@ struct AppState {
     tiles: Vec<Rc<CameraTile>>,
     next_runtime_id: u64,
     audio_update_guard: Rc<Cell<bool>>,
-    editable: bool,
+    kiosk_mode: bool,
+    pointer_timeout: Option<gtk4::glib::SourceId>,
+    editing: Option<EditSession>,
+    expanded_camera: Option<u64>,
+    grid_control_guard: Rc<Cell<bool>>,
+    columns_spin: gtk4::SpinButton,
+    rows_spin: gtk4::SpinButton,
+    add_camera_dropdown: gtk4::DropDown,
+    add_camera_ids: Vec<Uuid>,
+    layout_status: gtk4::Label,
+    grid_background: Option<gtk4::Box>,
+    preview: gtk4::Frame,
+    discard_confirmation_open: bool,
     config: AppConfig,
     store: ConfigStore,
     current_view: Uuid,
@@ -30,9 +49,31 @@ struct AppState {
 
 struct CameraTile {
     id: u64,
+    camera_id: Option<Uuid>,
     root: gtk4::Frame,
     controller: CameraController,
     audio_button: gtk4::ToggleButton,
+    placement: RefCell<ViewTile>,
+    edit_actions: gtk4::Box,
+}
+
+struct EditSession {
+    original: ViewConfig,
+    working: ViewConfig,
+    interaction: Option<LayoutInteraction>,
+}
+
+#[derive(Clone, Copy)]
+enum InteractionKind {
+    Move,
+    Resize,
+}
+
+struct LayoutInteraction {
+    camera_id: Uuid,
+    origin: ViewTile,
+    kind: InteractionKind,
+    last_valid: Option<ViewConfig>,
 }
 
 pub(crate) fn build_main_window(application: &gtk4::Application, options: &Options) {
@@ -79,7 +120,7 @@ fn build_loaded_main_window(
     let current_view = resolve_startup_view(&config, options.view.as_deref())
         .or_else(|| config.views.first().map(|view| view.id))
         .expect("validated default configuration always contains a view");
-    let kiosk = options.kiosk || config.kiosk_on_start;
+    let kiosk = options.kiosk || (config.kiosk_on_start && !options.windowed);
 
     let view_model = gtk4::StringList::new(&[]);
     let view_dropdown = gtk4::DropDown::builder().model(&view_model).build();
@@ -88,6 +129,7 @@ fn build_loaded_main_window(
 
     let cameras_button = gtk4::Button::with_label("Cameras…");
     let views_button = gtk4::Button::with_label("Views…");
+    let edit_button = gtk4::Button::with_label("Edit layout");
 
     let controls = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     controls.set_margin_top(12);
@@ -98,6 +140,32 @@ fn build_loaded_main_window(
     controls.append(&view_dropdown);
     controls.append(&cameras_button);
     controls.append(&views_button);
+    controls.append(&edit_button);
+
+    let cancel_edit = gtk4::Button::with_label("Cancel");
+    let save_edit = gtk4::Button::with_label("Save layout");
+    save_edit.add_css_class("suggested-action");
+    let columns_spin = gtk4::SpinButton::with_range(1.0, MAX_GRID_EXTENT as f64, 1.0);
+    let rows_spin = gtk4::SpinButton::with_range(1.0, MAX_GRID_EXTENT as f64, 1.0);
+    let add_camera_dropdown = gtk4::DropDown::from_strings(&[]);
+    let add_camera_button = gtk4::Button::with_label("Add camera");
+    let layout_status = manager_status_label();
+    layout_status.set_hexpand(true);
+    let edit_controls = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    edit_controls.set_margin_top(12);
+    edit_controls.set_margin_bottom(6);
+    edit_controls.set_margin_start(12);
+    edit_controls.set_margin_end(12);
+    edit_controls.append(&gtk4::Label::new(Some("Columns")));
+    edit_controls.append(&columns_spin);
+    edit_controls.append(&gtk4::Label::new(Some("Rows")));
+    edit_controls.append(&rows_spin);
+    edit_controls.append(&add_camera_dropdown);
+    edit_controls.append(&add_camera_button);
+    edit_controls.append(&layout_status);
+    edit_controls.append(&cancel_edit);
+    edit_controls.append(&save_edit);
+    edit_controls.set_visible(false);
 
     let error_label = gtk4::Label::new(None);
     error_label.set_halign(gtk4::Align::Start);
@@ -127,17 +195,42 @@ fn build_loaded_main_window(
 
     let root = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     root.append(&controls);
+    root.append(&edit_controls);
     root.append(&error_label);
     root.append(&scroller);
 
-    let editable = !kiosk;
-    if !editable {
+    if kiosk {
         controls.set_visible(false);
         error_label.set_visible(false);
     }
 
+    let window = gtk4::ApplicationWindow::builder()
+        .application(application)
+        .title("Camview")
+        .default_width(1_280)
+        .default_height(720)
+        .child(&root)
+        .build();
+    let preview = gtk4::Frame::new(None);
+    preview.set_can_target(false);
+    preview.add_css_class("layout-preview");
+    preview.set_visible(false);
+    let css = gtk4::CssProvider::new();
+    css.load_from_bytes(&gtk4::glib::Bytes::from_static(
+        b".layout-preview { background-color: rgba(53, 132, 228, 0.35); border: 3px solid #3584e4; }\
+          .layout-preview.invalid { background-color: rgba(224, 27, 36, 0.35); border-color: #e01b24; }",
+    ));
+    gtk4::style_context_add_provider_for_display(
+        &gtk4::prelude::WidgetExt::display(&window),
+        &css,
+        gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+    );
+
     let state = Rc::new(RefCell::new(AppState {
         grid: grid.clone(),
+        window: window.downgrade(),
+        controls: controls.clone(),
+        edit_controls: edit_controls.clone(),
         error_label: error_label.clone(),
         view_dropdown: view_dropdown.clone(),
         view_ids: Vec::new(),
@@ -145,7 +238,19 @@ fn build_loaded_main_window(
         tiles: Vec::new(),
         next_runtime_id: 1,
         audio_update_guard: Rc::new(Cell::new(false)),
-        editable,
+        kiosk_mode: kiosk,
+        pointer_timeout: None,
+        editing: None,
+        expanded_camera: None,
+        grid_control_guard: Rc::new(Cell::new(false)),
+        columns_spin: columns_spin.clone(),
+        rows_spin: rows_spin.clone(),
+        add_camera_dropdown: add_camera_dropdown.clone(),
+        add_camera_ids: Vec::new(),
+        layout_status: layout_status.clone(),
+        grid_background: None,
+        preview,
+        discard_confirmation_open: false,
         config,
         store,
         current_view,
@@ -174,14 +279,6 @@ fn build_loaded_main_window(
         }
     });
 
-    let window = gtk4::ApplicationWindow::builder()
-        .application(application)
-        .title("Camview")
-        .default_width(1_280)
-        .default_height(720)
-        .child(&root)
-        .build();
-
     cameras_button.connect_clicked({
         let state = state.clone();
         let window = window.clone();
@@ -192,10 +289,110 @@ fn build_loaded_main_window(
         let window = window.clone();
         move |_| show_view_manager(window.upcast_ref(), &state)
     });
+    edit_button.connect_clicked({
+        let state = state.clone();
+        move |_| enter_layout_edit(&state)
+    });
+    cancel_edit.connect_clicked({
+        let state = state.clone();
+        move |_| cancel_layout_edit(&state)
+    });
+    save_edit.connect_clicked({
+        let state = state.clone();
+        move |button| save_layout_edit(&state, button)
+    });
+    columns_spin.connect_value_changed({
+        let state = state.clone();
+        move |spin| {
+            if state.borrow().grid_control_guard.get() {
+                return;
+            }
+            let columns = spin.value_as_int() as u32;
+            let rows = state
+                .borrow()
+                .editing
+                .as_ref()
+                .map_or(1, |editing| editing.working.rows);
+            update_editing_view(&state, |view| layout::set_dimensions(view, columns, rows));
+        }
+    });
+    rows_spin.connect_value_changed({
+        let state = state.clone();
+        move |spin| {
+            if state.borrow().grid_control_guard.get() {
+                return;
+            }
+            let rows = spin.value_as_int() as u32;
+            let columns = state
+                .borrow()
+                .editing
+                .as_ref()
+                .map_or(1, |editing| editing.working.columns);
+            update_editing_view(&state, |view| layout::set_dimensions(view, columns, rows));
+        }
+    });
+    add_camera_button.connect_clicked({
+        let state = state.clone();
+        move |_| {
+            let camera_id = {
+                let state = state.borrow();
+                state
+                    .add_camera_ids
+                    .get(state.add_camera_dropdown.selected() as usize)
+                    .copied()
+            };
+            if let Some(camera_id) = camera_id {
+                update_editing_view(&state, |view| layout::add_camera(view, camera_id));
+            }
+        }
+    });
+
+    let key_controller = gtk4::EventControllerKey::new();
+    key_controller.connect_key_pressed({
+        let state = state.clone();
+        move |_, key, _, _| {
+            if key == gtk4::gdk::Key::F11 {
+                let enabled = !state.borrow().kiosk_mode;
+                set_kiosk_mode(&state, enabled);
+                return gtk4::glib::Propagation::Stop;
+            }
+            if key == gtk4::gdk::Key::Escape && state.borrow().expanded_camera.is_some() {
+                collapse_expanded_camera(&state);
+                return gtk4::glib::Propagation::Stop;
+            }
+            gtk4::glib::Propagation::Proceed
+        }
+    });
+    window.add_controller(key_controller);
+
+    let motion = gtk4::EventControllerMotion::new();
+    motion.connect_motion({
+        let state = state.clone();
+        move |_, _, _| note_kiosk_pointer_activity(&state)
+    });
+    motion.connect_enter({
+        let state = state.clone();
+        move |_, _, _| note_kiosk_pointer_activity(&state)
+    });
+    window.add_controller(motion);
 
     window.connect_close_request({
         let state = state.clone();
         move |_| {
+            if state.borrow().config_save_in_progress {
+                state
+                    .borrow()
+                    .layout_status
+                    .set_text("Wait for the layout save to finish before closing.");
+                return gtk4::glib::Propagation::Stop;
+            }
+            if state.borrow().editing.is_some() {
+                show_discard_layout_confirmation(&state);
+                return gtk4::glib::Propagation::Stop;
+            }
+            if let Some(timeout) = state.borrow_mut().pointer_timeout.take() {
+                timeout.remove();
+            }
             stop_all_tiles(&state);
             gtk4::glib::Propagation::Proceed
         }
@@ -216,6 +413,9 @@ fn build_loaded_main_window(
     refresh_view_dropdown(&state);
     window.present();
     apply_current_view(&state);
+    if kiosk {
+        note_kiosk_pointer_activity(&state);
+    }
 }
 
 fn resolve_startup_view(config: &AppConfig, requested: Option<&str>) -> Option<Uuid> {
@@ -298,6 +498,7 @@ fn refresh_view_dropdown(state: &Rc<RefCell<AppState>>) {
 }
 
 fn apply_current_view(state: &Rc<RefCell<AppState>>) {
+    state.borrow_mut().expanded_camera = None;
     stop_all_tiles(state);
     hide_error(state);
     let (view, configured_cameras, session_urls) = {
@@ -349,7 +550,7 @@ fn apply_current_view(state: &Rc<RefCell<AppState>>) {
             .as_deref()
             .unwrap_or(&camera.rtsp_url)
             .to_owned();
-        add_runtime_camera(state, &camera.name, &uri, &tile);
+        add_runtime_camera(state, Some(camera.id), &camera.name, &uri, &tile);
     }
     for (index, (uri, column, row)) in session_tiles.into_iter().enumerate() {
         let tile = ViewTile {
@@ -361,6 +562,7 @@ fn apply_current_view(state: &Rc<RefCell<AppState>>) {
         };
         add_runtime_camera(
             state,
+            None,
             &format!("Command-line camera {}", index + 1),
             &uri,
             &tile,
@@ -376,6 +578,7 @@ fn apply_current_view(state: &Rc<RefCell<AppState>>) {
 
 fn add_runtime_camera(
     state: &Rc<RefCell<AppState>>,
+    persistent_camera_id: Option<Uuid>,
     name: &str,
     uri: &str,
     placement: &ViewTile,
@@ -418,6 +621,13 @@ fn add_runtime_camera(
 
     let audio_button = gtk4::ToggleButton::with_label("Audio");
     audio_button.set_tooltip_text(Some("Make this the only audible camera"));
+    let remove_button = gtk4::Button::with_label("Remove");
+    let resize_handle = gtk4::Button::with_label("↘");
+    resize_handle.set_tooltip_text(Some("Drag to resize this tile"));
+    let edit_actions = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+    edit_actions.append(&remove_button);
+    edit_actions.append(&resize_handle);
+    edit_actions.set_visible(false);
 
     let actions = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
     actions.set_margin_top(6);
@@ -426,6 +636,7 @@ fn add_runtime_camera(
     actions.set_margin_end(8);
     actions.append(&name_label);
     actions.append(&audio_button);
+    actions.append(&edit_actions);
 
     let decoder_label = gtk4::Label::new(Some("Decoder: waiting for stream"));
     decoder_label.set_halign(gtk4::Align::Start);
@@ -475,9 +686,12 @@ fn add_runtime_camera(
 
     let tile = Rc::new(CameraTile {
         id: camera_id,
+        camera_id: persistent_camera_id,
         root,
         controller,
         audio_button,
+        placement: RefCell::new(placement.clone()),
+        edit_actions,
     });
     tile.audio_button.connect_toggled({
         let weak_state = Rc::downgrade(state);
@@ -492,6 +706,14 @@ fn add_runtime_camera(
             }
         }
     });
+    setup_tile_interactions(
+        state,
+        &tile,
+        &name_label,
+        &resize_handle,
+        &remove_button,
+        &video_overlay,
+    );
 
     grid.attach(
         &tile.root,
@@ -516,6 +738,640 @@ fn stop_all_tiles(state: &Rc<RefCell<AppState>>) {
     while let Some(child) = grid.first_child() {
         grid.remove(&child);
     }
+    state.borrow_mut().grid_background = None;
+}
+
+fn setup_tile_interactions(
+    state: &Rc<RefCell<AppState>>,
+    tile: &Rc<CameraTile>,
+    move_handle: &gtk4::Label,
+    resize_handle: &gtk4::Button,
+    remove_button: &gtk4::Button,
+    video: &gtk4::Overlay,
+) {
+    let move_gesture = gtk4::GestureDrag::new();
+    move_gesture.connect_drag_begin({
+        let state = state.clone();
+        let tile = tile.clone();
+        move |_, _, _| begin_layout_interaction(&state, &tile, InteractionKind::Move)
+    });
+    move_gesture.connect_drag_update({
+        let state = state.clone();
+        move |_, x, y| update_layout_interaction(&state, x, y)
+    });
+    move_gesture.connect_drag_end({
+        let state = state.clone();
+        move |_, _, _| finish_layout_interaction(&state)
+    });
+    move_handle.add_controller(move_gesture);
+
+    let resize_gesture = gtk4::GestureDrag::new();
+    resize_gesture.connect_drag_begin({
+        let state = state.clone();
+        let tile = tile.clone();
+        move |_, _, _| begin_layout_interaction(&state, &tile, InteractionKind::Resize)
+    });
+    resize_gesture.connect_drag_update({
+        let state = state.clone();
+        move |_, x, y| update_layout_interaction(&state, x, y)
+    });
+    resize_gesture.connect_drag_end({
+        let state = state.clone();
+        move |_, _, _| finish_layout_interaction(&state)
+    });
+    resize_handle.add_controller(resize_gesture);
+
+    remove_button.connect_clicked({
+        let state = state.clone();
+        let tile = tile.clone();
+        move |_| {
+            let Some(camera_id) = tile.camera_id else {
+                return;
+            };
+            update_editing_view(&state, |view| layout::remove_camera(view, camera_id));
+        }
+    });
+
+    let expand = gtk4::GestureClick::new();
+    expand.connect_released({
+        let state = state.clone();
+        let tile = tile.clone();
+        move |_, presses, _, _| {
+            if presses == 2 {
+                toggle_expanded_camera(&state, tile.id);
+            }
+        }
+    });
+    video.add_controller(expand);
+}
+
+fn begin_layout_interaction(
+    state: &Rc<RefCell<AppState>>,
+    tile: &Rc<CameraTile>,
+    kind: InteractionKind,
+) {
+    let Some(camera_id) = tile.camera_id else {
+        return;
+    };
+    let mut state = state.borrow_mut();
+    let Some(editing) = &mut state.editing else {
+        return;
+    };
+    let Some(origin) = layout::tile(&editing.working, camera_id).cloned() else {
+        return;
+    };
+    editing.interaction = Some(LayoutInteraction {
+        camera_id,
+        origin,
+        kind,
+        last_valid: None,
+    });
+}
+
+fn update_layout_interaction(state: &Rc<RefCell<AppState>>, x: f64, y: f64) {
+    let (columns, rows, width, height, interaction, working) = {
+        let state = state.borrow();
+        let Some(editing) = &state.editing else {
+            return;
+        };
+        let Some(interaction) = &editing.interaction else {
+            return;
+        };
+        (
+            editing.working.columns,
+            editing.working.rows,
+            state.grid.width().max(1) as f64,
+            state.grid.height().max(1) as f64,
+            (
+                interaction.camera_id,
+                interaction.origin.clone(),
+                interaction.kind,
+            ),
+            editing.working.clone(),
+        )
+    };
+    let cell_width =
+        ((width - f64::from(columns.saturating_sub(1)) * 8.0) / f64::from(columns)).max(1.0);
+    let cell_height =
+        ((height - f64::from(rows.saturating_sub(1)) * 8.0) / f64::from(rows)).max(1.0);
+    let column_delta = (x / cell_width).round() as i64;
+    let row_delta = (y / cell_height).round() as i64;
+    let (camera_id, origin, kind) = interaction;
+    let mut preview = origin.clone();
+    let proposal = match kind {
+        InteractionKind::Move => {
+            preview.column =
+                ((i64::from(origin.column) + column_delta).max(0) as u32).min(MAX_GRID_EXTENT);
+            preview.row = ((i64::from(origin.row) + row_delta).max(0) as u32).min(MAX_GRID_EXTENT);
+            layout::move_tile(&working, camera_id, preview.column, preview.row)
+        }
+        InteractionKind::Resize => {
+            preview.column_span =
+                ((i64::from(origin.column_span) + column_delta).max(1) as u32).min(MAX_GRID_EXTENT);
+            preview.row_span =
+                ((i64::from(origin.row_span) + row_delta).max(1) as u32).min(MAX_GRID_EXTENT);
+            layout::resize_tile(&working, camera_id, preview.column_span, preview.row_span)
+        }
+    };
+    let valid = proposal.is_ok();
+    {
+        let mut state = state.borrow_mut();
+        if let Some(interaction) = state
+            .editing
+            .as_mut()
+            .and_then(|editing| editing.interaction.as_mut())
+        {
+            interaction.last_valid = proposal.ok();
+        }
+        state.layout_status.set_text(if valid {
+            ""
+        } else {
+            "That placement overlaps another tile or exceeds the grid."
+        });
+    }
+    show_layout_preview(state, &preview, valid);
+}
+
+fn finish_layout_interaction(state: &Rc<RefCell<AppState>>) {
+    let candidate = {
+        let mut state = state.borrow_mut();
+        state.preview.set_visible(false);
+        state
+            .editing
+            .as_mut()
+            .and_then(|editing| editing.interaction.take())
+            .and_then(|interaction| interaction.last_valid)
+    };
+    if let Some(candidate) = candidate
+        && let Some(editing) = &mut state.borrow_mut().editing
+    {
+        editing.working = candidate;
+    }
+    render_editing_grid(state);
+}
+
+fn show_layout_preview(state: &Rc<RefCell<AppState>>, tile: &ViewTile, valid: bool) {
+    let state = state.borrow();
+    if state.preview.parent().is_some() {
+        state.grid.remove(&state.preview);
+    }
+    state.preview.remove_css_class("invalid");
+    if !valid {
+        state.preview.add_css_class("invalid");
+    }
+    state.grid.attach(
+        &state.preview,
+        tile.column as i32,
+        tile.row as i32,
+        tile.column_span as i32,
+        tile.row_span as i32,
+    );
+    state.preview.set_visible(true);
+}
+
+fn update_editing_view(
+    state: &Rc<RefCell<AppState>>,
+    update: impl FnOnce(&ViewConfig) -> Result<ViewConfig, LayoutError>,
+) {
+    let working = {
+        let state = state.borrow();
+        let Some(editing) = &state.editing else {
+            return;
+        };
+        editing.working.clone()
+    };
+    match update(&working) {
+        Ok(candidate) => {
+            if let Some(editing) = &mut state.borrow_mut().editing {
+                editing.working = candidate;
+            }
+            state.borrow().layout_status.set_text("");
+            render_editing_grid(state);
+        }
+        Err(error) => {
+            state.borrow().layout_status.set_text(&error.to_string());
+            refresh_layout_controls(state);
+        }
+    }
+}
+
+fn enter_layout_edit(state: &Rc<RefCell<AppState>>) {
+    let view = {
+        let state = state.borrow();
+        if state.kiosk_mode || state.editing.is_some() {
+            return;
+        }
+        let Some(view) = state
+            .config
+            .views
+            .iter()
+            .find(|view| view.id == state.current_view)
+        else {
+            return;
+        };
+        view.clone()
+    };
+    collapse_expanded_camera(state);
+    {
+        let mut state = state.borrow_mut();
+        state.editing = Some(EditSession {
+            original: view.clone(),
+            working: view,
+            interaction: None,
+        });
+        state.controls.set_visible(false);
+        state.edit_controls.set_visible(true);
+        state.layout_status.set_text("");
+    }
+    remove_transient_tiles(state);
+    refresh_layout_controls(state);
+    render_editing_grid(state);
+}
+
+fn cancel_layout_edit(state: &Rc<RefCell<AppState>>) {
+    let original = state
+        .borrow_mut()
+        .editing
+        .take()
+        .map(|editing| editing.original);
+    if original.is_none() {
+        return;
+    }
+    {
+        let state = state.borrow();
+        state.edit_controls.set_visible(false);
+        state.controls.set_visible(!state.kiosk_mode);
+    }
+    apply_current_view(state);
+}
+
+fn save_layout_edit(state: &Rc<RefCell<AppState>>, save_button: &gtk4::Button) {
+    let working = match state.borrow().editing.as_ref() {
+        Some(editing) => editing.working.clone(),
+        None => return,
+    };
+    let mut candidate = state.borrow().config.clone();
+    let Some(index) = candidate
+        .views
+        .iter()
+        .position(|view| view.id == working.id)
+    else {
+        return;
+    };
+    candidate.views[index] = working;
+    save_button.set_sensitive(false);
+    state.borrow().edit_controls.set_sensitive(false);
+    let save_button = save_button.clone();
+    let state_for_callback = state.clone();
+    commit_config(state, candidate, move |result| {
+        save_button.set_sensitive(true);
+        state_for_callback
+            .borrow()
+            .edit_controls
+            .set_sensitive(true);
+        match result {
+            Ok(()) => {
+                state_for_callback.borrow_mut().editing = None;
+                {
+                    let state = state_for_callback.borrow();
+                    state.edit_controls.set_visible(false);
+                    state.controls.set_visible(!state.kiosk_mode);
+                }
+                apply_current_view(&state_for_callback);
+            }
+            Err(error) => state_for_callback
+                .borrow()
+                .layout_status
+                .set_text(&format!("Could not save layout: {error:#}")),
+        }
+    });
+}
+
+fn remove_transient_tiles(state: &Rc<RefCell<AppState>>) {
+    let removed = {
+        let mut state = state.borrow_mut();
+        let mut removed = Vec::new();
+        let mut retained = Vec::new();
+        for tile in std::mem::take(&mut state.tiles) {
+            if tile.camera_id.is_none() {
+                removed.push(tile);
+            } else {
+                retained.push(tile);
+            }
+        }
+        state.tiles = retained;
+        removed
+    };
+    for tile in removed {
+        if tile.root.parent().is_some() {
+            state.borrow().grid.remove(&tile.root);
+        }
+        tile.controller.stop();
+    }
+}
+
+fn render_editing_grid(state: &Rc<RefCell<AppState>>) {
+    let working = match state.borrow().editing.as_ref() {
+        Some(editing) => editing.working.clone(),
+        None => return,
+    };
+    let existing = state.borrow().tiles.clone();
+    let wanted = working
+        .tiles
+        .iter()
+        .map(|tile| tile.camera_id)
+        .collect::<std::collections::HashSet<_>>();
+    let removed = {
+        let mut state = state.borrow_mut();
+        let mut retained = Vec::new();
+        let mut removed = Vec::new();
+        for tile in std::mem::take(&mut state.tiles) {
+            if tile.camera_id.is_some_and(|id| wanted.contains(&id)) {
+                retained.push(tile);
+            } else {
+                removed.push(tile);
+            }
+        }
+        state.tiles = retained;
+        removed
+    };
+    for tile in removed {
+        tile.controller.stop();
+    }
+    clear_grid(state);
+    attach_grid_background(state, working.columns, working.rows);
+
+    for placement in &working.tiles {
+        if let Some(tile) = existing
+            .iter()
+            .find(|tile| tile.camera_id == Some(placement.camera_id))
+            .cloned()
+        {
+            *tile.placement.borrow_mut() = placement.clone();
+            tile.edit_actions.set_visible(true);
+            state.borrow().grid.attach(
+                &tile.root,
+                placement.column as i32,
+                placement.row as i32,
+                placement.column_span as i32,
+                placement.row_span as i32,
+            );
+            continue;
+        }
+        let camera = state
+            .borrow()
+            .config
+            .cameras
+            .iter()
+            .find(|camera| camera.id == placement.camera_id)
+            .cloned();
+        if let Some(camera) = camera {
+            let uri = camera
+                .substream_url
+                .as_deref()
+                .unwrap_or(&camera.rtsp_url)
+                .to_owned();
+            add_runtime_camera(state, Some(camera.id), &camera.name, &uri, placement);
+            if let Some(tile) = state.borrow().tiles.last() {
+                tile.edit_actions.set_visible(true);
+            }
+        }
+    }
+    refresh_layout_controls(state);
+}
+
+fn clear_grid(state: &Rc<RefCell<AppState>>) {
+    let grid = state.borrow().grid.clone();
+    while let Some(child) = grid.first_child() {
+        grid.remove(&child);
+    }
+    state.borrow_mut().grid_background = None;
+}
+
+fn refresh_layout_controls(state: &Rc<RefCell<AppState>>) {
+    let (working, cameras, guard, columns_spin, rows_spin, dropdown) = {
+        let state = state.borrow();
+        let Some(editing) = &state.editing else {
+            return;
+        };
+        (
+            editing.working.clone(),
+            state.config.cameras.clone(),
+            state.grid_control_guard.clone(),
+            state.columns_spin.clone(),
+            state.rows_spin.clone(),
+            state.add_camera_dropdown.clone(),
+        )
+    };
+    guard.set(true);
+    columns_spin.set_value(f64::from(working.columns));
+    rows_spin.set_value(f64::from(working.rows));
+    guard.set(false);
+
+    let available = cameras
+        .into_iter()
+        .filter(|camera| !working.tiles.iter().any(|tile| tile.camera_id == camera.id))
+        .collect::<Vec<_>>();
+    let names = available
+        .iter()
+        .map(|camera| camera.name.as_str())
+        .collect::<Vec<_>>();
+    dropdown.set_model(Some(&gtk4::StringList::new(&names)));
+    dropdown.set_selected(if available.is_empty() {
+        gtk4::INVALID_LIST_POSITION
+    } else {
+        0
+    });
+    state.borrow_mut().add_camera_ids = available.iter().map(|camera| camera.id).collect();
+}
+
+fn toggle_expanded_camera(state: &Rc<RefCell<AppState>>, camera_id: u64) {
+    if state.borrow().editing.is_some() {
+        return;
+    }
+    if state.borrow().expanded_camera == Some(camera_id) {
+        collapse_expanded_camera(state);
+        return;
+    }
+    state.borrow_mut().expanded_camera = Some(camera_id);
+    render_expanded_camera(state);
+}
+
+fn render_expanded_camera(state: &Rc<RefCell<AppState>>) {
+    let (camera_id, tile, columns, rows) = {
+        let state = state.borrow();
+        let Some(camera_id) = state.expanded_camera else {
+            return;
+        };
+        let Some(tile) = state
+            .tiles
+            .iter()
+            .find(|tile| tile.id == camera_id)
+            .cloned()
+        else {
+            return;
+        };
+        let view = state
+            .config
+            .views
+            .iter()
+            .find(|view| view.id == state.current_view);
+        (
+            camera_id,
+            tile,
+            view.map_or(1, |view| view.columns),
+            view.map_or(1, |view| view.rows),
+        )
+    };
+    clear_grid(state);
+    attach_grid_background(state, columns, rows);
+    state
+        .borrow()
+        .grid
+        .attach(&tile.root, 0, 0, columns as i32, rows as i32);
+    tracing::debug!(camera = camera_id, "expanded camera tile");
+}
+
+fn collapse_expanded_camera(state: &Rc<RefCell<AppState>>) {
+    if state.borrow_mut().expanded_camera.take().is_none() {
+        return;
+    }
+    render_runtime_grid(state);
+}
+
+fn render_runtime_grid(state: &Rc<RefCell<AppState>>) {
+    let (tiles, columns, rows) = {
+        let state = state.borrow();
+        let view = state
+            .config
+            .views
+            .iter()
+            .find(|view| view.id == state.current_view);
+        let columns = view.map_or(1, |view| view.columns);
+        let rows = state
+            .tiles
+            .iter()
+            .map(|tile| {
+                let placement = tile.placement.borrow();
+                placement.row + placement.row_span
+            })
+            .max()
+            .unwrap_or_else(|| view.map_or(1, |view| view.rows))
+            .max(view.map_or(1, |view| view.rows));
+        (state.tiles.clone(), columns, rows)
+    };
+    clear_grid(state);
+    attach_grid_background(state, columns, rows);
+    for tile in tiles {
+        let placement = tile.placement.borrow();
+        state.borrow().grid.attach(
+            &tile.root,
+            placement.column as i32,
+            placement.row as i32,
+            placement.column_span as i32,
+            placement.row_span as i32,
+        );
+    }
+}
+
+fn set_kiosk_mode(state: &Rc<RefCell<AppState>>, enabled: bool) {
+    if state.borrow().kiosk_mode == enabled {
+        return;
+    }
+    if state.borrow().config_save_in_progress {
+        state
+            .borrow()
+            .layout_status
+            .set_text("Wait for the layout save to finish before changing modes.");
+        return;
+    }
+    if enabled && state.borrow().editing.is_some() {
+        cancel_layout_edit(state);
+    }
+    collapse_expanded_camera(state);
+    {
+        let mut state = state.borrow_mut();
+        state.kiosk_mode = enabled;
+        state.controls.set_visible(!enabled);
+        state.edit_controls.set_visible(false);
+        state
+            .error_label
+            .set_visible(!enabled && !state.error_label.text().is_empty());
+        if let Some(timeout) = state.pointer_timeout.take() {
+            timeout.remove();
+        }
+        if let Some(window) = state.window.upgrade() {
+            if enabled {
+                window.fullscreen();
+            } else {
+                window.unfullscreen();
+                window.set_cursor_from_name(None);
+            }
+        }
+    }
+    if enabled {
+        note_kiosk_pointer_activity(state);
+    }
+}
+
+fn note_kiosk_pointer_activity(state: &Rc<RefCell<AppState>>) {
+    let mut state_ref = state.borrow_mut();
+    if !state_ref.kiosk_mode {
+        return;
+    }
+    if let Some(window) = state_ref.window.upgrade() {
+        window.set_cursor_from_name(None);
+    }
+    if let Some(timeout) = state_ref.pointer_timeout.take() {
+        timeout.remove();
+    }
+    let weak_state = Rc::downgrade(state);
+    state_ref.pointer_timeout = Some(gtk4::glib::timeout_add_local_once(
+        Duration::from_secs(3),
+        move || {
+            let Some(state) = weak_state.upgrade() else {
+                return;
+            };
+            let mut state = state.borrow_mut();
+            state.pointer_timeout.take();
+            if state.kiosk_mode
+                && let Some(window) = state.window.upgrade()
+            {
+                window.set_cursor_from_name(Some("none"));
+            }
+        },
+    ));
+}
+
+fn show_discard_layout_confirmation(state: &Rc<RefCell<AppState>>) {
+    {
+        let mut state = state.borrow_mut();
+        if state.discard_confirmation_open {
+            return;
+        }
+        state.discard_confirmation_open = true;
+    }
+    let dialog = gtk4::AlertDialog::builder()
+        .modal(true)
+        .message("Discard unsaved layout changes?")
+        .detail("The current layout edit has not been saved.")
+        .buttons(["Keep editing", "Discard"])
+        .cancel_button(0)
+        .default_button(0)
+        .build();
+    let Some(window) = state.borrow().window.upgrade() else {
+        return;
+    };
+    let state = state.clone();
+    gtk4::glib::spawn_future_local(async move {
+        let response = dialog.choose_future(Some(&window)).await;
+        state.borrow_mut().discard_confirmation_open = false;
+        if response == Ok(1) {
+            state.borrow_mut().editing = None;
+            stop_all_tiles(&state);
+            window.close();
+        }
+    });
 }
 
 fn set_audible_camera(state: &Rc<RefCell<AppState>>, camera_id: u64, audible: bool) {
@@ -579,6 +1435,7 @@ fn attach_grid_background(state: &Rc<RefCell<AppState>>, columns: u32, rows: u32
         .borrow()
         .grid
         .attach(&background, 0, 0, columns as i32, rows as i32);
+    state.borrow_mut().grid_background = Some(background);
 }
 
 fn commit_config<F>(state: &Rc<RefCell<AppState>>, candidate: AppConfig, callback: F)
@@ -1367,7 +2224,9 @@ fn clear_list(list: &gtk4::ListBox) {
 fn show_error(state: &Rc<RefCell<AppState>>, message: &str) {
     let state = state.borrow();
     state.error_label.set_text(message);
-    state.error_label.set_visible(state.editable);
+    state
+        .error_label
+        .set_visible(!state.kiosk_mode && state.editing.is_none());
 }
 
 fn hide_error(state: &Rc<RefCell<AppState>>) {

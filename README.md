@@ -4,7 +4,7 @@ Camview is a native Linux application for displaying multiple RTSP cameras in co
 
 ## Development status
 
-Milestone M3 is implemented. Camview persists cameras and named views, restores a selected startup view, renders saved grid positions and spans, and provides camera and view managers. The application can display up to ten independent RTSP streams, automatically recover failed or stalled pipelines, select one camera for audio, report decoder diagnostics, and minimize playback latency. Graphical drag-and-resize layout editing remains milestone M4. Validation with the target Intel VA-API hardware remains deployment-machine dependent.
+Milestone M4 is implemented. Camview provides inline drag-and-resize layout editing, mixed tile sizes, fullscreen kiosk behavior, pointer hiding, and expanded camera tiles in addition to persisted cameras and named views. The application can display up to ten independent RTSP streams, automatically recover failed or stalled pipelines, select one camera for audio, report decoder diagnostics, and minimize playback latency. Validation with the target Intel VA-API hardware remains deployment-machine dependent.
 
 ## Prerequisites
 
@@ -41,7 +41,17 @@ Use another configuration file or override the startup view by UUID or case-inse
 cargo run -- --config ./cameras.json --view Overview
 ```
 
-Views store logical grid dimensions and each tile's row, column, and spans. Camview renders that geometry, while the M3 view editor automatically places newly assigned cameras into free cells. Direct manipulation by dragging and resizing tiles is planned for M4.
+Views store logical grid dimensions and each tile's row, column, and spans. Camview renders that geometry, and the view manager automatically places newly assigned cameras into free cells.
+
+## M4 layout editing and kiosk mode
+
+Select **Edit layout** to arrange the active view while its streams continue playing. Drag a camera by its name, drag the **↘** handle to resize it, and use the row and column controls to set the logical grid size. Tiles may have different sizes. Invalid overlaps are rejected and snap back to the previous valid position. Add and remove actions affect only the current view. **Save layout** persists the result; **Cancel** restores the original layout. Temporary `--rtsp-url` cameras are hidden while editing because they are not part of the saved view.
+
+Double-click video to expand that camera within the application. Double-click again or press **Escape** to restore the grid.
+
+Press **F11** to enter or leave kiosk mode. Kiosk mode enters fullscreen, hides management controls, and hides the pointer after three seconds of inactivity. `--kiosk` forces kiosk mode, while `--windowed` temporarily overrides a saved kiosk-on-start preference.
+
+See [Unattended startup](docs/unattended-startup.md) for XDG autostart and systemd user-service examples.
 
 Repeated `--rtsp-url` arguments remain available for temporary, non-persisted streams. They are placed in free cells in the selected view:
 
