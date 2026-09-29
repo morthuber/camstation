@@ -7,6 +7,7 @@ use gst::prelude::*;
 use gstreamer as gst;
 
 use super::controller::{configure_rtsp_source, redact_sensitive_text, validate_rtsp_uri};
+use super::normalize_rtsp_uri;
 
 const CONNECTION_TIMEOUT: Duration = Duration::from_secs(8);
 
@@ -61,7 +62,7 @@ impl ConnectionTest {
             .context("GStreamer plugin 'fakesink' is unavailable")?;
         let pipeline = gst::ElementFactory::make("playbin3")
             .name("camstation_connection_test")
-            .property("uri", uri)
+            .property("uri", normalize_rtsp_uri(uri))
             .property("video-sink", &video_sink)
             .property("audio-sink", &audio_sink)
             .property("mute", true)

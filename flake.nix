@@ -22,7 +22,7 @@
         in
         pkgs.rustPlatform.buildRustPackage {
           pname = "camstation";
-          version = "0.2.0";
+          version = "0.2.1";
           src = self;
 
           cargoLock.lockFile = ./Cargo.lock;

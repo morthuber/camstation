@@ -10,6 +10,7 @@ use gst::prelude::*;
 use gstreamer as gst;
 
 use super::lifecycle::{HEALTHY_RESET_INTERVAL, ReconnectBackoff, stream_is_stalled};
+use super::normalize_rtsp_uri;
 
 const MINIMUM_RTSP_LATENCY_MS: u32 = 0;
 const WATCHDOG_INTERVAL: Duration = Duration::from_secs(1);
@@ -110,7 +111,7 @@ impl CameraController {
         Ok(Self {
             inner: Rc::new(RefCell::new(ControllerInner {
                 camera_key,
-                uri: uri.trim().to_owned(),
+                uri: normalize_rtsp_uri(uri).to_owned(),
                 desired_playing: false,
                 muted: true,
                 generation: 0,

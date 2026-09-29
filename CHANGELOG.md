@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1 — 2026-09-29
+
+- Strip client-side URI fragments before sending RTSP URLs to GStreamer, matching VLC behavior and restoring compatibility with cameras that reject fragments in RTSP request targets.
+
 ## 0.2.0 — 2026-09-29
 
 - Renamed the application to Camstation and finalized `org.camstation.camstation`.

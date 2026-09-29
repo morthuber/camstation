@@ -23,7 +23,7 @@ On NixOS, use:
 
 ```sh
 nix-shell -p appimage-run
-appimage-run ./dist/Camstation-0.2.0-x86_64.AppImage
+appimage-run ./dist/Camstation-0.2.1-x86_64.AppImage
 ```
 
 On systems without working FUSE, the AppImage runtime supports

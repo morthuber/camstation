@@ -9,7 +9,7 @@ Install the SDK and Rust extension, then build a local bundle:
 flatpak install --user flathub org.gnome.Platform//50 org.gnome.Sdk//50 \
   org.freedesktop.Sdk.Extension.rust-stable//25.08
 make bundle-flatpak
-flatpak install --user --reinstall dist/Camstation-0.2.0.flatpak
+flatpak install --user --reinstall dist/Camstation-0.2.1.flatpak
 flatpak run org.camstation.camstation
 ```
 

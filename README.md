@@ -119,7 +119,7 @@ the Freedesktop 25.08 Rust extension:
 
 ```sh
 make bundle-flatpak
-flatpak install --user --reinstall dist/Camstation-0.2.0.flatpak
+flatpak install --user --reinstall dist/Camstation-0.2.1.flatpak
 flatpak run org.camstation.camstation
 ```
 
