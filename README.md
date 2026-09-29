@@ -4,7 +4,7 @@ Camview is a native Linux application for displaying multiple RTSP cameras in co
 
 ## Development status
 
-Milestone M2 is implemented. The application can display up to ten independent RTSP streams, automatically recover failed or stalled pipelines, select one camera for audio, report decoder diagnostics, and minimize playback latency. Configuration persistence and saved views are milestone M3. Validation with the target Intel VA-API hardware remains deployment-machine dependent.
+Milestone M3 is implemented. Camview persists cameras and named views, restores a selected startup view, renders saved grid positions and spans, and provides camera and view managers. The application can display up to ten independent RTSP streams, automatically recover failed or stalled pipelines, select one camera for audio, report decoder diagnostics, and minimize playback latency. Graphical drag-and-resize layout editing remains milestone M4. Validation with the target Intel VA-API hardware remains deployment-machine dependent.
 
 ## Prerequisites
 
@@ -29,9 +29,21 @@ Then run:
 cargo run
 ```
 
-## M2 multi-camera viewer
+## M3 configuration and views
 
-Start the application and add cameras in the window, or repeat `--rtsp-url` up to ten times:
+Use **Cameras…** to add, edit, test, or remove RTSP cameras. A failed connection test does not prevent saving an unavailable camera. Use **Views…** to create, rename, duplicate, or remove named views, choose their cameras, select the startup view, and configure kiosk-on-start. The view selector in the main window changes the active view.
+
+Configuration is stored at `$XDG_CONFIG_HOME/camview/config.json`, or at `$HOME/.config/camview/config.json` when `XDG_CONFIG_HOME` is unset. Writes use an atomic replacement, restrict newly created files to the current user on Unix, and retain the preceding valid file as `config.json.bak`. An invalid existing file is reported and is never silently replaced.
+
+Use another configuration file or override the startup view by UUID or case-insensitive name:
+
+```sh
+cargo run -- --config ./cameras.json --view Overview
+```
+
+Views store logical grid dimensions and each tile's row, column, and spans. Camview renders that geometry, while the M3 view editor automatically places newly assigned cameras into free cells. Direct manipulation by dragging and resizing tiles is planned for M4.
+
+Repeated `--rtsp-url` arguments remain available for temporary, non-persisted streams. They are placed in free cells in the selected view:
 
 ```sh
 cargo run -- \
@@ -39,7 +51,9 @@ cargo run -- \
   --rtsp-url 'rtsp://camera-two.local/stream'
 ```
 
-Each tile owns an independent GStreamer pipeline. Failed streams retain their tile and reconnect after `1s`, `2s`, `5s`, `10s`, `15s`, then `30s`; the delay resets after 20 seconds of healthy frame delivery. A watchdog reconnects streams that produce no initial frame for 10 seconds or stop delivering frames for 5 seconds. Removing a tile stops its pipeline and releases its timers, bus watch, and frame probe.
+## Reliable multi-camera playback
+
+Each tile owns an independent GStreamer pipeline. Failed streams retain their tile and reconnect after `1s`, `2s`, `5s`, `10s`, `15s`, then `30s`; the delay resets after 20 seconds of healthy frame delivery. A watchdog reconnects streams that produce no initial frame for 10 seconds or stop delivering frames for 5 seconds. Changing views or closing the application stops hidden pipelines and releases their timers, bus watches, and frame probes.
 
 All cameras start muted. Enabling a tile's **Audio** toggle first mutes every other camera, so at most one stream is audible. Mute intent survives pipeline reconnection.
 

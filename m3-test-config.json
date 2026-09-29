@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "cameras": [
+    {
+      "id": "11111111-1111-4111-8111-111111111111",
+      "name": "Traffic A",
+      "rtsp_url": "rtsp://127.0.0.1:8554/city-traffic",
+      "substream_url": null
+    },
+    {
+      "id": "22222222-2222-4222-8222-222222222222",
+      "name": "Traffic B",
+      "rtsp_url": "rtsp://127.0.0.1:8554/city-traffic",
+      "substream_url": null
+    }
+  ],
+  "views": [
+    {
+      "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "name": "Overview",
+      "tiles": [
+        { "camera_id": "11111111-1111-4111-8111-111111111111", "column": 0, "row": 0, "column_span": 1, "row_span": 1 }
+      ]
+    },
+    {
+      "id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "name": "Secondary",
+      "tiles": [
+        { "camera_id": "11111111-1111-4111-8111-111111111111", "column": 0, "row": 0, "column_span": 1, "row_span": 1 },
+        { "camera_id": "22222222-2222-4222-8222-222222222222", "column": 1, "row": 0, "column_span": 1, "row_span": 1 }
+      ]
+    }
+  ],
+  "startup_view": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "kiosk_on_start": false
+}

@@ -755,7 +755,7 @@ fn stream_is_stalled(
         || (frame_count > 0 && elapsed_since_progress >= STALL_TIMEOUT)
 }
 
-fn configure_rtsp_source(playbin: &gst::Element) {
+pub(super) fn configure_rtsp_source(playbin: &gst::Element) {
     playbin.connect_local("source-setup", false, move |values| {
         let Some(source) = values
             .get(1)
