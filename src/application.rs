@@ -24,6 +24,10 @@ pub(crate) struct Options {
     #[arg(long, value_name = "PATH")]
     pub(crate) config: Option<PathBuf>,
 
+    /// Play one RTSP stream (M1 proof-of-concept option).
+    #[arg(long, value_name = "URL")]
+    pub(crate) rtsp_url: Option<String>,
+
     /// Override the tracing filter (for example, camview=debug).
     #[arg(long, value_name = "FILTER")]
     pub(crate) log: Option<String>,
@@ -51,5 +55,6 @@ pub(crate) fn run(options: Options) {
         ui::build_main_window(application, &options);
     });
 
-    let _exit_code = application.run();
+    // Clap owns Camview's command line; do not let GApplication parse it again.
+    let _exit_code = application.run_with_args(&["camview"]);
 }

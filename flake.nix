@@ -20,6 +20,8 @@
               cargo
               clippy
               gtk4
+              intel-media-driver
+              libva-utils
               pkg-config
               rustc
               rustfmt

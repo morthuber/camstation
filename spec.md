@@ -131,7 +131,6 @@ Each camera has:
 - RTSP URL.
 - Optional secondary/substream RTSP URL.
 - Transport preference: TCP by default, UDP optional, or automatic where supported.
-- Target latency in milliseconds, initially defaulting to 250 ms.
 - Audio availability and default mute state.
 - Optional advanced pipeline settings added only when a demonstrated need exists.
 
@@ -169,7 +168,7 @@ Benefits:
 
 - A failed stream cannot tear down other streams.
 - Reconnect policy and diagnostics remain per-camera.
-- Camera-specific transport, latency, and audio settings are possible.
+- Camera-specific transport and audio settings are possible.
 - Future views can stop streams that are not visible.
 
 ### 9.2 Pipeline construction
@@ -181,9 +180,9 @@ The application will build an RTSP pipeline dynamically:
 3. Autoplug a compatible decoder, preferring VA-API where supported.
 4. Present video through `gtk4paintablesink` without routing normal playback frames through Rust.
 5. If audio exists, decode it into a controllable volume element and system audio sink.
-6. Bound buffering and drop stale data rather than allow latency to grow indefinitely.
+6. Disable avoidable buffering and drop stale data rather than allow latency to grow.
 
-Initial implementation may use `uridecodebin3` to establish broad compatibility. If it does not expose enough RTSP latency, transport, or error control, pipeline construction will move to `rtspsrc` plus dynamic pads without changing the controller interface.
+The initial implementation uses `playbin3` for broad codec compatibility and configures its `rtspsrc` through the `source-setup` signal. If later requirements need more transport control, pipeline construction can move to `rtspsrc` plus dynamic pads without changing the controller interface.
 
 ### 9.3 Hardware acceleration
 
@@ -195,10 +194,12 @@ Main/substream selection is supported in the data model. The grid should normall
 
 ### 9.4 Latency
 
-- Target: stable playback below two seconds end-to-end on a healthy LAN.
-- Initial RTSP latency target: 250 ms, configurable per camera.
-- TCP is the default transport for predictable behavior; UDP is an advanced per-camera option.
+- Target: the lowest practical end-to-end latency on a healthy LAN, always below two seconds under representative conditions.
+- Latency is not user-configurable; every camera uses the same minimum-latency policy.
+- The RTSP jitter buffer is set to zero latency, RTSP buffering mode is disabled, and the video sink presents frames without clock synchronization.
+- TCP is the default transport for predictable behavior; UDP may be considered later only if measurements show a meaningful benefit.
 - Queues must be bounded, and stale frames should be dropped rather than accumulated.
+- This policy favors immediacy over jitter tolerance and perfectly smooth frame pacing.
 - Camera-side encoding and buffering may impose an irreducible portion of latency.
 
 ### 9.5 Audio
@@ -264,8 +265,7 @@ An illustrative schema is:
       "name": "Front door",
       "rtsp_url": "rtsp://camera.local/stream",
       "substream_url": null,
-      "transport": "tcp",
-      "latency_ms": 250
+      "transport": "tcp"
     }
   ],
   "views": [
@@ -395,7 +395,7 @@ The MVP is complete when:
 ### M1: Media proof of concept
 
 - One RTSP URL rendered with `gtk4paintablesink`.
-- Hardware decoder and latency diagnostics.
+- Hardware decoder and low-latency pipeline diagnostics.
 - Basic pipeline error display.
 
 ### M2: Reliable multi-camera playback

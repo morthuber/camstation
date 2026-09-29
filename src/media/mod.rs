@@ -1,3 +1,5 @@
 //! GStreamer pipeline construction and per-camera lifecycle management.
-//!
-//! The first RTSP pipeline is implemented in milestone M1.
+
+mod controller;
+
+pub(crate) use controller::{CameraController, DecoderInfo, PlaybackEvent, PlaybackState};
