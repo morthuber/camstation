@@ -24,9 +24,9 @@ pub(crate) struct Options {
     #[arg(long, value_name = "PATH")]
     pub(crate) config: Option<PathBuf>,
 
-    /// Play one RTSP stream (M1 proof-of-concept option).
+    /// Add an RTSP stream at startup; may be specified up to ten times.
     #[arg(long, value_name = "URL")]
-    pub(crate) rtsp_url: Option<String>,
+    pub(crate) rtsp_url: Vec<String>,
 
     /// Override the tracing filter (for example, camview=debug).
     #[arg(long, value_name = "FILTER")]

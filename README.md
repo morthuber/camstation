@@ -4,7 +4,7 @@ Camview is a native Linux application for displaying multiple RTSP cameras in co
 
 ## Development status
 
-Milestone M1 is implemented. The application can render one RTSP stream through GStreamer and `gtk4paintablesink`, report pipeline state and decoder selection, minimize playback latency, and display playback errors. Validation with a real camera and Intel VA-API decoder is still hardware-dependent; multi-camera playback and reconnection are milestone M2.
+Milestone M2 is implemented. The application can display up to ten independent RTSP streams, automatically recover failed or stalled pipelines, select one camera for audio, report decoder diagnostics, and minimize playback latency. Configuration persistence and saved views are milestone M3. Validation with the target Intel VA-API hardware remains deployment-machine dependent.
 
 ## Prerequisites
 
@@ -29,16 +29,21 @@ Then run:
 cargo run
 ```
 
-## M1 single-camera viewer
+## M2 multi-camera viewer
 
-Start the application and enter an RTSP URL in the window, or provide it at startup:
+Start the application and add cameras in the window, or repeat `--rtsp-url` up to ten times:
 
 ```sh
-cargo run -- --rtsp-url 'rtsp://camera.local/stream'
-cargo run -- --rtsp-url 'rtsp://user:password@camera.local/stream'
+cargo run -- \
+  --rtsp-url 'rtsp://camera-one.local/stream' \
+  --rtsp-url 'rtsp://camera-two.local/stream'
 ```
 
-The M1 pipeline uses RTSP-over-TCP with its jitter-buffer latency set to zero, RTSP buffering disabled, stale data dropping enabled, and unsynchronized frame presentation. This always favors the lowest practical latency over jitter tolerance and smooth frame pacing. Playback starts with audio muted and reports whether the selected decoder appears to be hardware accelerated. The URL remains visible in the configuration field, but credentials are redacted from routine application logs and pipeline error text.
+Each tile owns an independent GStreamer pipeline. Failed streams retain their tile and reconnect after `1s`, `2s`, `5s`, `10s`, `15s`, then `30s`; the delay resets after 20 seconds of healthy frame delivery. A watchdog reconnects streams that produce no initial frame for 10 seconds or stop delivering frames for 5 seconds. Removing a tile stops its pipeline and releases its timers, bus watch, and frame probe.
+
+All cameras start muted. Enabling a tile's **Audio** toggle first mutes every other camera, so at most one stream is audible. Mute intent survives pipeline reconnection.
+
+Pipelines use RTSP-over-TCP with jitter-buffer latency set to zero, RTSP buffering disabled, stale data dropping enabled, and unsynchronized frame presentation. This favors the lowest practical latency over jitter tolerance and smooth frame pacing. The URL is visible in the add-camera field, but credentials are redacted from routine application logs and pipeline error text.
 
 A working local development stream is available for repeatable playback tests:
 
@@ -48,7 +53,7 @@ cargo run -- --rtsp-url 'rtsp://127.0.0.1:8554/city-traffic' --log camview=debug
 
 At the time it was added, this H.264 stream reached `Playing` and selected `avdec_h264` on the AMD development workstation.
 
-Use `--kiosk` with a startup URL to hide the M1 connection controls and open fullscreen:
+Use `--kiosk` with startup URLs to hide camera-management controls and open fullscreen:
 
 ```sh
 cargo run -- --kiosk --rtsp-url 'rtsp://camera.local/stream'
