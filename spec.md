@@ -1,8 +1,8 @@
-# Camview Product and Technical Specification
+# Camstation Product and Technical Specification
 
 ## 1. Purpose
 
-Camview is a standalone Linux desktop application for continuously displaying RTSP cameras from a trusted local network. It presents up to ten cameras in configurable, saved grid layouts and is designed to run unattended as a single-monitor kiosk.
+Camstation is a standalone Linux desktop application for continuously displaying RTSP cameras from a trusted local network. It presents up to ten cameras in configurable, saved grid layouts and is designed to run unattended as a single-monitor kiosk.
 
 The initial target is eight simultaneous streams on a moderately specified x86-64 desktop with an Intel integrated GPU. NixOS and Ubuntu are the primary operating systems.
 
@@ -18,7 +18,7 @@ The initial target is eight simultaneous streams on a moderately specified x86-6
 - Package the application consistently for NixOS and Ubuntu.
 - Leave clear extension points for snapshots, ONVIF PTZ, and motion highlighting.
 
-## 3. Non-goals for the MVP
+## 3. Current non-goals
 
 - Camera discovery or ONVIF discovery.
 - Recording or playback of recorded footage.
@@ -38,10 +38,10 @@ These features may be added later without changing the core media architecture.
 - Architecture: x86-64.
 - Graphics: Intel integrated GPU with VA-API support.
 - Display: one monitor.
-- Expected workload: eight streams; hard UI limit for the MVP: ten.
+- Expected workload: eight streams; hard UI limit: ten.
 - Cameras may differ in codec, resolution, frame rate, and audio support.
 
-Performance depends on codec profiles, resolutions, GPU generation, and camera-side buffering. Camview will expose diagnostics rather than promise a fixed frame rate across unknown hardware and streams.
+Performance depends on codec profiles, resolutions, GPU generation, and camera-side buffering. Camstation exposes diagnostics rather than promising a fixed frame rate across unknown hardware and streams.
 
 ### 4.2 Operating systems and display servers
 
@@ -53,7 +53,7 @@ Performance depends on codec profiles, resolutions, GPU generation, and camera-s
 
 Flatpak is the primary cross-distribution format. It provides more predictable GTK, GStreamer, codec-plugin, and GPU integration than AppImage, particularly on NixOS.
 
-The Flatpak will require:
+The Flatpak requires:
 
 - Network access for RTSP streams.
 - GPU device access for available hardware-decoding backends.
@@ -61,7 +61,9 @@ The Flatpak will require:
 - PipeWire/PulseAudio access for optional camera audio.
 - Persistent application configuration storage.
 
-An AppImage is not part of the MVP. It can be reconsidered after Flatpak validation.
+An AppImage is provided as a best-effort beta artifact. Flatpak and the native
+Nix package are the supported distribution mechanisms. AppImage hardware
+decoding is opportunistic, and NixOS users run it through `appimage-run`.
 
 ## 5. Technology decisions
 
@@ -83,7 +85,7 @@ An AppImage is not part of the MVP. It can be reconsidered after Flatpak validat
 - **Electron/Tauri web video:** browsers do not natively provide the required RTSP pipeline control, and bridging decoded frames adds complexity and copies.
 - **OpenCV:** useful for analysis, but not an efficient multi-stream playback framework.
 - **Python:** suitable for a prototype, but less desirable for robust packaging and a long-running media kiosk.
-- **Qt Multimedia:** viable, but offers less low-level RTSP pipeline control than direct GStreamer integration. Qt plus GStreamer would add another integration layer without a clear MVP benefit.
+- **Qt Multimedia:** viable, but offers less low-level RTSP pipeline control than direct GStreamer integration. Qt plus GStreamer would add another integration layer without a clear product benefit.
 - **libVLC/libmpv instances:** easy for basic playback, but less suitable for per-stream pipeline tuning, diagnostics, and planned media extensions.
 
 ## 6. User experience
@@ -136,7 +138,7 @@ Each camera has:
 
 The camera editor must validate basic fields and offer a connection test before saving. A failed test does not prevent saving because a camera may be temporarily unavailable.
 
-RTSP credentials may initially be included in the URL. The configuration file must be created with user-only permissions where the platform permits. Secret Service integration is a post-MVP security improvement.
+RTSP credentials may be included in the URL. The configuration file is created with user-only permissions where the platform permits. Secret Service integration is a possible future security improvement.
 
 ## 8. Saved view and layout model
 
@@ -154,7 +156,7 @@ A tile contains:
 - Column span and row span.
 - Optional overlay visibility override.
 
-The first implementation uses `GtkGrid` with integer spans. The layout model remains toolkit-independent so a custom GTK layout manager can replace it if drag/resize behavior requires finer control.
+The application uses `GtkGrid` with integer spans. The layout model remains toolkit-independent so a custom GTK layout manager can replace it if drag/resize behavior requires finer control.
 
 Tiles preserve video aspect ratio and use letterboxing rather than stretching. Empty grid regions show the application background.
 
@@ -173,7 +175,7 @@ Benefits:
 
 ### 9.2 Pipeline construction
 
-The application will build an RTSP pipeline dynamically:
+The application builds each RTSP pipeline dynamically:
 
 1. Connect to the RTSP source.
 2. Select the appropriate RTP depayloader and parser.
@@ -182,7 +184,7 @@ The application will build an RTSP pipeline dynamically:
 5. If audio exists, decode it into a controllable volume element and system audio sink.
 6. Disable avoidable buffering and drop stale data rather than allow latency to grow.
 
-The initial implementation uses `playbin3` for broad codec compatibility and configures its `rtspsrc` through the `source-setup` signal. If later requirements need more transport control, pipeline construction can move to `rtspsrc` plus dynamic pads without changing the controller interface.
+The implementation uses `playbin3` for broad codec compatibility and configures its `rtspsrc` through the `source-setup` signal. If later requirements need more transport control, pipeline construction can move to `rtspsrc` plus dynamic pads without changing the controller interface.
 
 ### 9.3 Hardware acceleration
 
@@ -237,7 +239,7 @@ Application shutdown explicitly stops every pipeline and releases media resource
 Default location:
 
 ```text
-$XDG_CONFIG_HOME/camview/config.json
+$XDG_CONFIG_HOME/camstation/config.json
 ```
 
 If `XDG_CONFIG_HOME` is unset, the platform-appropriate user configuration directory is used.
@@ -290,10 +292,10 @@ An illustrative schema is:
 
 ## 12. Command-line interface
 
-Planned interface:
+Current interface:
 
 ```text
-camview [OPTIONS]
+camstation [OPTIONS]
 
 --kiosk                 Start fullscreen in kiosk mode
 --windowed              Ignore kiosk-on-start and open with normal controls
@@ -323,7 +325,7 @@ GUI startup remains the default. CLI options support deployment and troubleshoot
 - Blocking media or file operations must not run on the GTK main thread.
 - Normal rendering must avoid CPU readback of decoded video frames.
 - Repeated reconnects must not leak pipelines, bus watches, timers, or GTK objects.
-- Eight-camera soak tests should run for at least 24 hours before calling the kiosk MVP stable.
+- Eight-camera soak tests should run for at least 24 hours before declaring a kiosk deployment stable.
 
 ## 15. Security and privacy
 
@@ -367,71 +369,31 @@ GUI startup remains the default. CLI options support deployment and troubleshoot
 
 A local H.264 RTSP test stream is available at `rtsp://127.0.0.1:8554/city-traffic` for repeatable development tests. It is not an application runtime dependency.
 
-## 17. MVP acceptance criteria
+## 17. Current implementation status
 
-The MVP is complete when:
+The current application provides:
 
 1. A user can add, edit, test, and remove manually configured RTSP cameras in the GUI.
-2. Eight cameras can be displayed concurrently on the target Intel desktop, subject to codec capabilities of that hardware.
+2. Up to ten cameras can be displayed concurrently; eight software-decoded H.264 pipelines have been exercised in the Flatpak build.
 3. Heterogeneous supported streams select an appropriate decoder, preferring a compatible available hardware backend.
 4. The user can create multiple named views and graphically move and resize tiles on a snapped grid.
 5. Saved configuration and the selected startup view survive application restarts.
 6. Kiosk mode starts fullscreen without requiring interaction.
 7. Failed and stalled streams retain their tile, display status, and reconnect automatically.
-8. Healthy local streams remain below two seconds of latency under representative conditions.
+8. Pipelines use a low-latency policy intended to keep healthy local streams below two seconds, subject to deployment validation.
 9. A single camera can be unmuted, and unmuting it mutes every other camera.
-10. The application is usable on NixOS and as a Flatpak on Ubuntu.
+10. Installable Nix and Flatpak packages target current NixOS and Ubuntu 24.04, with target-system smoke tests tracked separately.
 11. Routine logs do not expose RTSP credentials.
 12. No camera failure causes the application or another stream to stop.
 
-## 18. Delivery milestones
+## 18. Deferred work and deployment validation
 
-### M0: Development foundation
-
-- Cargo project and module boundaries.
-- Nix development shell.
-- GTK/GStreamer initialization smoke test.
-- Formatting, linting, and test commands.
-
-### M1: Media proof of concept
-
-- One RTSP URL rendered with `gtk4paintablesink`.
-- Hardware decoder and low-latency pipeline diagnostics.
-- Basic pipeline error display.
-
-### M2: Reliable multi-camera playback
-
-- Independent controllers and pipelines.
-- Up to ten camera tiles.
-- Reconnect backoff and stall watchdog.
-- Exclusive audio selection.
-
-### M3: Configuration and views
-
-- Versioned, atomic persistence.
-- Camera manager and connection test.
-- Multiple views and startup selection.
-
-### M4: Graphical layout and kiosk
-
-- Drag, resize, snapping, and overlap validation.
-- Fullscreen kiosk behavior and CLI options.
-- Unattended startup documentation.
-
-### M5: Packaging and hardening
-
-- Flatpak manifest and codec validation.
-- Nix package or launch wrapper.
-- Cross-distribution tests.
-- Eight-stream performance and soak testing.
-
-## 19. Deferred decisions
-
-These do not block M0 or M1:
-
-- Final reverse-DNS application ID, required before publishing a Flatpak.
-- Open-source license and public repository location.
+- Public repository location.
 - Whether credentials move to Secret Service before the first public release.
 - Whether expanded tiles dynamically switch from substream to main stream.
+- Intel VA-API certification on the target kiosk machine.
+- Representative latency and resource measurements with eight cameras.
+- A 24-hour unattended soak and reboot-startup validation.
 
-Until a publishing ID is chosen, development uses `io.github.orthuber.Camview` as a provisional application ID. It can be changed before external release.
+The application ID is `org.camstation.camstation`, and the project is licensed
+under the MIT License.

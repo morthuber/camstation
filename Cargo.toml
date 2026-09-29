@@ -1,8 +1,9 @@
 [package]
-name = "camview"
+name = "camstation"
 version = "0.1.0"
 edition = "2024"
-description = "A configurable multi-camera RTSP viewer for Linux"
+description = "A configurable multi-camera RTSP station for Linux"
+license = "MIT"
 publish = false
 
 [dependencies]

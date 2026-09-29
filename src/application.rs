@@ -7,7 +7,7 @@ use tracing_subscriber::EnvFilter;
 
 use crate::ui;
 
-pub(crate) const APPLICATION_ID: &str = "io.github.orthuber.Camview";
+pub(crate) const APPLICATION_ID: &str = "org.camstation.camstation";
 
 #[derive(Clone, Debug, Parser)]
 #[command(author, version, about)]
@@ -32,7 +32,7 @@ pub(crate) struct Options {
     #[arg(long, value_name = "URL")]
     pub(crate) rtsp_url: Vec<String>,
 
-    /// Override the tracing filter (for example, camview=debug).
+    /// Override the tracing filter (for example, camstation=debug).
     #[arg(long, value_name = "FILTER")]
     pub(crate) log: Option<String>,
 }
@@ -41,7 +41,7 @@ pub(crate) fn init_logging(cli_filter: Option<&str>) -> Result<()> {
     let filter = match cli_filter {
         Some(filter) => EnvFilter::try_new(filter).context("invalid --log filter")?,
         None => EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new("camview=info,warn")),
+            .unwrap_or_else(|_| EnvFilter::new("camstation=info,warn")),
     };
 
     tracing_subscriber::fmt()
@@ -59,8 +59,8 @@ pub(crate) fn run(options: Options) {
         ui::build_main_window(application, &options);
     });
 
-    // Clap owns Camview's command line; do not let GApplication parse it again.
-    let _exit_code = application.run_with_args(&["camview"]);
+    // Clap owns Camstation's command line; do not let GApplication parse it again.
+    let _exit_code = application.run_with_args(&["camstation"]);
 }
 
 #[cfg(test)]
@@ -69,9 +69,10 @@ mod tests {
 
     #[test]
     fn kiosk_and_windowed_are_mutually_exclusive() {
-        assert!(Options::try_parse_from(["camview", "--kiosk", "--windowed"]).is_err());
+        assert_eq!(APPLICATION_ID, "org.camstation.camstation");
+        assert!(Options::try_parse_from(["camstation", "--kiosk", "--windowed"]).is_err());
         assert!(
-            Options::try_parse_from(["camview", "--windowed"])
+            Options::try_parse_from(["camstation", "--windowed"])
                 .unwrap()
                 .windowed
         );

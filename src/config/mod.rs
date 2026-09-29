@@ -264,7 +264,7 @@ impl ConfigStore {
             )?;
 
         Ok(Self {
-            path: base.join("camview").join("config.json"),
+            path: base.join("camstation").join("config.json"),
         })
     }
 
@@ -440,7 +440,7 @@ mod tests {
 
     impl TestDirectory {
         fn new() -> Self {
-            let path = env::temp_dir().join(format!("camview-config-test-{}", Uuid::new_v4()));
+            let path = env::temp_dir().join(format!("camstation-config-test-{}", Uuid::new_v4()));
             fs::create_dir_all(&path).expect("create test directory");
             Self(path)
         }

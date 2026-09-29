@@ -1,10 +1,16 @@
-# Camview
+# Camstation
 
-Camview is a native Linux application for displaying multiple RTSP cameras in configurable grid layouts. The product and technical requirements are in [`spec.md`](spec.md).
+Camstation is a native Linux application for displaying multiple RTSP cameras in configurable grid layouts. The product and technical requirements are in [`spec.md`](spec.md).
 
-## Development status
+## Current status
 
-Milestone M4 is implemented. Camview provides inline drag-and-resize layout editing, mixed tile sizes, fullscreen kiosk behavior, pointer hiding, and expanded camera tiles in addition to persisted cameras and named views. The application can display up to ten independent RTSP streams, automatically recover failed or stalled pipelines, select one camera for audio, report decoder diagnostics, and minimize playback latency. Validation with the target Intel VA-API hardware remains deployment-machine dependent.
+Camstation provides camera and view management, persistent graphical layouts,
+automatic stream recovery, exclusive audio selection, fullscreen kiosk behavior,
+and decoder diagnostics for up to ten RTSP streams. Supported Flatpak and native
+Nix packages are available alongside a best-effort AppImage beta. The software
+package baseline covers H.264, H.265, and MJPEG through GStreamer. Intel VA-API
+certification and long-running deployment soak testing remain
+environment-dependent follow-up work.
 
 ## Prerequisites
 
@@ -29,11 +35,11 @@ Then run:
 cargo run
 ```
 
-## M3 configuration and views
+## Configuration and views
 
 Use **Cameras…** to add, edit, test, or remove RTSP cameras. A failed connection test does not prevent saving an unavailable camera. Use **Views…** to create, rename, duplicate, or remove named views, choose their cameras, select the startup view, and configure kiosk-on-start. The view selector in the main window changes the active view.
 
-Configuration is stored at `$XDG_CONFIG_HOME/camview/config.json`, or at `$HOME/.config/camview/config.json` when `XDG_CONFIG_HOME` is unset. Writes use an atomic replacement, restrict newly created files to the current user on Unix, and retain the preceding valid file as `config.json.bak`. An invalid existing file is reported and is never silently replaced.
+Configuration is stored at `$XDG_CONFIG_HOME/camstation/config.json`, or at `$HOME/.config/camstation/config.json` when `XDG_CONFIG_HOME` is unset. Writes use an atomic replacement, restrict newly created files to the current user on Unix, and retain the preceding valid file as `config.json.bak`. An invalid existing file is reported and is never silently replaced.
 
 Use another configuration file or override the startup view by UUID or case-insensitive name:
 
@@ -41,9 +47,9 @@ Use another configuration file or override the startup view by UUID or case-inse
 cargo run -- --config ./cameras.json --view Overview
 ```
 
-Views store logical grid dimensions and each tile's row, column, and spans. Camview renders that geometry, and the view manager automatically places newly assigned cameras into free cells.
+Views store logical grid dimensions and each tile's row, column, and spans. Camstation renders that geometry, and the view manager automatically places newly assigned cameras into free cells.
 
-## M4 layout editing and kiosk mode
+## Layout editing and kiosk mode
 
 Select **Edit layout** to arrange the active view while its streams continue playing. Drag a camera by its name, drag the **↘** handle to resize it, and use the row and column controls to set the logical grid size. Tiles may have different sizes. Invalid overlaps are rejected and snap back to the previous valid position. Add and remove actions affect only the current view. **Save layout** persists the result; **Cancel** restores the original layout. Temporary `--rtsp-url` cameras are hidden while editing because they are not part of the saved view.
 
@@ -72,7 +78,7 @@ Pipelines use RTSP-over-TCP with jitter-buffer latency set to zero, RTSP bufferi
 A working local development stream is available for repeatable playback tests:
 
 ```sh
-cargo run -- --rtsp-url 'rtsp://127.0.0.1:8554/city-traffic' --log camview=debug
+cargo run -- --rtsp-url 'rtsp://127.0.0.1:8554/city-traffic' --log camstation=debug
 ```
 
 At the time it was added, this H.264 stream reached `Playing` and selected `avdec_h264` on the AMD development workstation.
@@ -90,7 +96,45 @@ make fmt
 make check
 make clippy
 make test
+make validate-packages
 ```
+
+## Distribution packages
+
+Build or run the native Nix package:
+
+```sh
+nix build path:.#camstation
+nix run path:.#camstation -- --help
+```
+
+Build a local Flatpak bundle after installing GNOME Platform and SDK 50 plus
+the Freedesktop 25.08 Rust extension:
+
+```sh
+make bundle-flatpak
+flatpak install --user --reinstall dist/Camstation.flatpak
+flatpak run org.camstation.camstation
+```
+
+The Flatpak has network, display, GPU, and audio access but no general host
+home-directory access. See [`flatpak/README.md`](flatpak/README.md) for details.
+
+An additional AppImage recipe is available for an Ubuntu 24.04 x86-64 build
+host:
+
+```sh
+make package-appimage
+```
+
+The AppImage is a beta artifact. Software decoding is its compatibility
+baseline, and current NixOS requires `appimage-run`. See
+[`packaging/appimage/README.md`](packaging/appimage/README.md).
+
+The repeatable package checklist is in
+[`docs/package-validation.md`](docs/package-validation.md), and the latest
+completed/pending matrix is recorded in
+[`docs/package-validation-results.md`](docs/package-validation-results.md).
 
 To inspect relevant GStreamer plugins:
 
@@ -101,14 +145,14 @@ gst-inspect-1.0 vah264dec
 gst-inspect-1.0 vah265dec
 ```
 
-GStreamer automatically selects among compatible installed decoders. Camview recognizes GStreamer's `Hardware` decoder metadata and common VA-API, Intel QSV/MSDK, NVIDIA, V4L2, Vulkan, AMD AMF, and platform decoder factory names. Software fallback is expected when no compatible hardware decoder is registered or when the hardware does not support the stream's codec profile. The Nix shell includes Intel's media driver because Intel is the initial deployment target; other vendors require their corresponding system driver and GStreamer plugin.
+GStreamer automatically selects among compatible installed decoders. Camstation recognizes GStreamer's `Hardware` decoder metadata and common VA-API, Intel QSV/MSDK, NVIDIA, V4L2, Vulkan, AMD AMF, and platform decoder factory names. Software fallback is expected when no compatible hardware decoder is registered or when the hardware does not support the stream's codec profile. The Nix shell includes Intel's media driver because Intel is the initial deployment target; other vendors require their corresponding system driver and GStreamer plugin.
 
 ## Logging
 
-Camview uses `tracing`. Set `RUST_LOG` for application logs and `GST_DEBUG` for GStreamer diagnostics:
+Camstation uses `tracing`. Set `RUST_LOG` for application logs and `GST_DEBUG` for GStreamer diagnostics:
 
 ```sh
-RUST_LOG=camview=debug GST_DEBUG=2 cargo run
+RUST_LOG=camstation=debug GST_DEBUG=2 cargo run
 ```
 
 RTSP URLs may contain credentials and must not be written unredacted to routine logs.
@@ -123,3 +167,9 @@ direnv allow
 ```
 
 `.envrc` is intentionally not generated automatically because enabling it is a per-user decision.
+
+## License
+
+Camstation is licensed under the [MIT License](LICENSE). Packaged third-party
+components retain their own licenses; see
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

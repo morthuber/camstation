@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Camstation
+Comment=Display RTSP cameras in saved grid layouts
+Exec=camstation
+Icon=org.camstation.camstation
+Terminal=false
+Categories=AudioVideo;Video;
+Keywords=RTSP;camera;monitor;kiosk;
+StartupNotify=true

@@ -33,17 +33,17 @@ impl ConnectionTest {
         validate_rtsp_uri(uri)?;
 
         let video_sink = gst::ElementFactory::make("fakesink")
-            .name("camview_connection_test_video")
+            .name("camstation_connection_test_video")
             .property("sync", false)
             .build()
             .context("GStreamer plugin 'fakesink' is unavailable")?;
         let audio_sink = gst::ElementFactory::make("fakesink")
-            .name("camview_connection_test_audio")
+            .name("camstation_connection_test_audio")
             .property("sync", false)
             .build()
             .context("GStreamer plugin 'fakesink' is unavailable")?;
         let pipeline = gst::ElementFactory::make("playbin3")
-            .name("camview_connection_test")
+            .name("camstation_connection_test")
             .property("uri", uri)
             .property("video-sink", &video_sink)
             .property("audio-sink", &audio_sink)

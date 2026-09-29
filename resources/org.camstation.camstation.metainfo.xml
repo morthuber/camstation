@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.camstation.camstation</id>
+  <name>Camstation</name>
+  <summary>Display RTSP cameras in configurable grid layouts</summary>
+  <developer id="org.camstation">
+    <name>Camstation contributors</name>
+  </developer>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <description>
+    <p>
+      Camstation is a native Linux viewer for up to ten RTSP cameras. It saves
+      named grid layouts, reconnects interrupted streams, and supports an
+      unattended fullscreen kiosk mode.
+    </p>
+    <p>
+      Each visible camera uses an independent GStreamer pipeline. Compatible
+      hardware decoders are preferred when available, with software decoding
+      as a fallback.
+    </p>
+  </description>
+  <launchable type="desktop-id">org.camstation.camstation.desktop</launchable>
+  <provides>
+    <binary>camstation</binary>
+  </provides>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2026-09-29">
+      <description>
+        <p>Initial release with camera management and graphical kiosk layouts.</p>
+      </description>
+    </release>
+  </releases>
+</component>

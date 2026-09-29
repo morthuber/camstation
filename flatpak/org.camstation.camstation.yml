@@ -1,0 +1,39 @@
+app-id: org.camstation.camstation
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: camstation
+finish-args:
+  - --share=network
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --socket=pulseaudio
+  - --device=dri
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/camstation/cargo
+modules:
+  - name: camstation
+    buildsystem: simple
+    build-commands:
+      - cargo --offline --locked build --release
+      - install -Dm755 target/release/camstation /app/bin/camstation
+      - install -Dm644 resources/org.camstation.camstation.desktop /app/share/applications/org.camstation.camstation.desktop
+      - install -Dm644 resources/org.camstation.camstation.metainfo.xml /app/share/metainfo/org.camstation.camstation.metainfo.xml
+      - install -Dm644 resources/org.camstation.camstation.svg /app/share/icons/hicolor/scalable/apps/org.camstation.camstation.svg
+      - install -Dm644 LICENSE /app/share/licenses/camstation/LICENSE
+      - install -Dm644 THIRD_PARTY_NOTICES.md /app/share/doc/camstation/THIRD_PARTY_NOTICES.md
+    sources:
+      - type: dir
+        path: ..
+        skip:
+          - .git
+          - .flatpak-builder
+          - build-dir
+          - dist
+          - result
+          - target
+      - cargo-sources.json

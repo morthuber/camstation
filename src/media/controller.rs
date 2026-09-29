@@ -328,7 +328,7 @@ fn build_pipeline(
     generation: u64,
 ) -> Result<(ActivePipeline, gtk4::gdk::Paintable)> {
     let video_sink = gst::ElementFactory::make("gtk4paintablesink")
-        .name(format!("camview_video_{camera_key}_{generation}"))
+        .name(format!("camstation_video_{camera_key}_{generation}"))
         .property("sync", false)
         .build()
         .context("GStreamer plugin 'gtk4paintablesink' is unavailable")?;
@@ -338,7 +338,7 @@ fn build_pipeline(
         build_silent_audio_sink(camera_key, generation)?
     } else {
         match gst::ElementFactory::make("autoaudiosink")
-            .name(format!("camview_audio_{camera_key}_{generation}"))
+            .name(format!("camstation_audio_{camera_key}_{generation}"))
             .build()
         {
             Ok(sink) => sink,
@@ -354,7 +354,7 @@ fn build_pipeline(
     };
 
     let playbin = gst::ElementFactory::make("playbin3")
-        .name(format!("camview_player_{camera_key}_{generation}"))
+        .name(format!("camstation_player_{camera_key}_{generation}"))
         .property("uri", uri)
         .property("video-sink", &video_sink)
         .property("audio-sink", &audio_sink)
@@ -449,7 +449,7 @@ fn build_pipeline(
 
 fn build_silent_audio_sink(camera_key: u64, generation: u64) -> Result<gst::Element> {
     gst::ElementFactory::make("fakesink")
-        .name(format!("camview_silent_audio_{camera_key}_{generation}"))
+        .name(format!("camstation_silent_audio_{camera_key}_{generation}"))
         .build()
         .context("GStreamer audio fallback 'fakesink' is unavailable")
 }

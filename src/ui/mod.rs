@@ -99,12 +99,12 @@ pub(crate) fn build_main_window(application: &gtk4::Application, options: &Optio
             Ok(Ok(config)) => build_loaded_main_window(&application, &options, store, config),
             Ok(Err(error)) => show_startup_error(
                 &application,
-                "Cannot load Camview configuration",
+                "Cannot load Camstation configuration",
                 &format!("{error:#}\n\nThe existing file was not modified."),
             ),
             Err(_) => show_startup_error(
                 &application,
-                "Cannot load Camview configuration",
+                "Cannot load Camstation configuration",
                 "The configuration loader terminated unexpectedly.",
             ),
         }
@@ -206,7 +206,7 @@ fn build_loaded_main_window(
 
     let window = gtk4::ApplicationWindow::builder()
         .application(application)
-        .title("Camview")
+        .title("Camstation")
         .default_width(1_280)
         .default_height(720)
         .child(&root)
