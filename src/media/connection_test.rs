@@ -19,6 +19,23 @@ struct TestInner {
     completion_idle: Option<gst::glib::SourceId>,
     pending_result: Option<std::result::Result<(), String>>,
     callback: Option<TestCallback>,
+    completion: CompletionArbiter,
+}
+
+#[derive(Default)]
+struct CompletionArbiter {
+    claimed: bool,
+}
+
+impl CompletionArbiter {
+    fn claim(&mut self) -> bool {
+        if self.claimed {
+            false
+        } else {
+            self.claimed = true;
+            true
+        }
+    }
 }
 
 pub(crate) struct ConnectionTest {
@@ -59,6 +76,7 @@ impl ConnectionTest {
             completion_idle: None,
             pending_result: None,
             callback: Some(Box::new(callback)),
+            completion: CompletionArbiter::default(),
         }));
         let weak_inner = Rc::downgrade(&inner);
 
@@ -129,7 +147,7 @@ fn queue_completion(
         return;
     };
     let mut inner = inner.borrow_mut();
-    if inner.pending_result.is_some() || inner.completion_idle.is_some() {
+    if !inner.completion.claim() {
         return;
     }
     inner.pending_result = Some(result);
@@ -199,4 +217,63 @@ fn message_is_from(message: &gst::MessageRef, element: &gst::Element) -> bool {
         .src()
         .and_then(|source| source.downcast_ref::<gst::Element>())
         .is_some_and(|source| source == element)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use super::*;
+    use serial_test::serial;
+
+    #[test]
+    fn completion_can_only_be_claimed_once() {
+        let mut completion = CompletionArbiter::default();
+        assert!(completion.claim());
+        assert!(!completion.claim());
+        assert!(!completion.claim());
+    }
+
+    fn test_inner(callback: TestCallback) -> Rc<RefCell<TestInner>> {
+        Rc::new(RefCell::new(TestInner {
+            pipeline: None,
+            bus_watch: None,
+            timeout_source: None,
+            completion_idle: None,
+            pending_result: None,
+            callback: Some(callback),
+            completion: CompletionArbiter::default(),
+        }))
+    }
+
+    #[test]
+    #[serial]
+    fn first_completion_wins_and_callback_runs_once() {
+        let results = Rc::new(RefCell::new(Vec::new()));
+        let callback_results = results.clone();
+        let inner = test_inner(Box::new(move |result| {
+            callback_results.borrow_mut().push(result);
+        }));
+        let weak = Rc::downgrade(&inner);
+        queue_completion(&weak, Err("first error".to_owned()));
+        queue_completion(&weak, Ok(()));
+        while gst::glib::MainContext::default().iteration(false) {}
+
+        assert_eq!(*results.borrow(), [Err("first error".to_owned())]);
+        assert!(inner.borrow().callback.is_none());
+    }
+
+    #[test]
+    #[serial]
+    fn cancellation_suppresses_queued_callback() {
+        let called = Rc::new(Cell::new(false));
+        let callback_called = called.clone();
+        let inner = test_inner(Box::new(move |_| callback_called.set(true)));
+        queue_completion(&Rc::downgrade(&inner), Ok(()));
+        stop_inner(&inner);
+        while gst::glib::MainContext::default().iteration(false) {}
+
+        assert!(!called.get());
+        assert!(inner.borrow().completion_idle.is_none());
+    }
 }

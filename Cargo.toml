@@ -1,6 +1,6 @@
 [package]
 name = "camstation"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "A configurable multi-camera RTSP station for Linux"
 license = "MIT"
@@ -17,6 +17,11 @@ thiserror = "2.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1.0", features = ["serde", "v4"] }
+
+[dev-dependencies]
+proptest = "1.9"
+serial_test = "3.2"
+tempfile = "3.23"
 
 [profile.release]
 lto = "thin"

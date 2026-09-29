@@ -51,7 +51,7 @@ Views store logical grid dimensions and each tile's row, column, and spans. Cams
 
 ## Layout editing and kiosk mode
 
-Select **Edit layout** to arrange the active view while its streams continue playing. Drag a camera by its name, drag the **↘** handle to resize it, and use the row and column controls to set the logical grid size. Tiles may have different sizes. Invalid overlaps are rejected and snap back to the previous valid position. Add and remove actions affect only the current view. **Save layout** persists the result; **Cancel** restores the original layout. Temporary `--rtsp-url` cameras are hidden while editing because they are not part of the saved view.
+Select **Edit layout** to arrange the active view while its streams continue playing. Drag anywhere on a camera image to move it, drag the **↘** handle to resize it, and use the row and column controls to set the logical grid size. Visible cell guides show where tiles will snap, and **Fit grid** trims empty trailing rows and columns. To add a camera, choose it and then click its desired empty cell. Tiles may have different sizes. Invalid overlaps are rejected and snap back to the previous valid position. Add and remove actions affect only the current view. **Save layout** is enabled after a change and persists the result; **Cancel** restores the original layout. Temporary `--rtsp-url` cameras are hidden while editing because they are not part of the saved view.
 
 Double-click video to expand that camera within the application. Double-click again or press **Escape** to restore the grid.
 
@@ -96,8 +96,14 @@ make fmt
 make check
 make clippy
 make test
+make test-media
+make test-ui
+make coverage
 make validate-packages
 ```
+
+See [`docs/testing.md`](docs/testing.md) for the test-suite split, coverage
+baseline, and graphical test requirements.
 
 ## Distribution packages
 
@@ -113,7 +119,7 @@ the Freedesktop 25.08 Rust extension:
 
 ```sh
 make bundle-flatpak
-flatpak install --user --reinstall dist/Camstation.flatpak
+flatpak install --user --reinstall dist/Camstation-0.2.0.flatpak
 flatpak run org.camstation.camstation
 ```
 

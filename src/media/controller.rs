@@ -9,19 +9,10 @@ use anyhow::{Context, Result, bail};
 use gst::prelude::*;
 use gstreamer as gst;
 
+use super::lifecycle::{HEALTHY_RESET_INTERVAL, ReconnectBackoff, stream_is_stalled};
+
 const MINIMUM_RTSP_LATENCY_MS: u32 = 0;
 const WATCHDOG_INTERVAL: Duration = Duration::from_secs(1);
-const STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
-const STALL_TIMEOUT: Duration = Duration::from_secs(5);
-const HEALTHY_RESET_INTERVAL: Duration = Duration::from_secs(20);
-const RETRY_DELAYS: [Duration; 6] = [
-    Duration::from_secs(1),
-    Duration::from_secs(2),
-    Duration::from_secs(5),
-    Duration::from_secs(10),
-    Duration::from_secs(15),
-    Duration::from_secs(30),
-];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum PlaybackState {
@@ -43,7 +34,6 @@ pub(crate) struct DecoderInfo {
 pub(crate) enum PlaybackEvent {
     StateChanged(PlaybackState),
     PaintableChanged(gtk4::gdk::Paintable),
-    DecoderChanged(DecoderInfo),
     AudioDisabled(String),
     Error(String),
 }
@@ -71,7 +61,7 @@ struct ControllerInner {
     muted: bool,
     generation: u64,
     state: PlaybackState,
-    retry_index: usize,
+    backoff: ReconnectBackoff,
     active: Option<ActivePipeline>,
     recovery_idle: Option<gst::glib::SourceId>,
     retry_source: Option<gst::glib::SourceId>,
@@ -125,7 +115,7 @@ impl CameraController {
                 muted: true,
                 generation: 0,
                 state: PlaybackState::Stopped,
-                retry_index: 0,
+                backoff: ReconnectBackoff::default(),
                 active: None,
                 recovery_idle: None,
                 retry_source: None,
@@ -230,13 +220,13 @@ fn check_watchdog(context: &ControllerContext) {
             inner.last_progress_at = now;
             inner.healthy_since.get_or_insert(now);
 
-            if inner.retry_index > 0
+            if inner.backoff.has_retried()
                 && inner
                     .healthy_since
                     .is_some_and(|since| now.duration_since(since) >= HEALTHY_RESET_INTERVAL)
             {
                 tracing::debug!(camera = inner.camera_key, "reset reconnect backoff");
-                inner.retry_index = 0;
+                inner.backoff.reset();
             }
             return;
         }
@@ -413,18 +403,10 @@ fn build_pipeline(
                         && state.current() == gst::State::Playing =>
                 {
                     notify_state(&watched_context, PlaybackState::Playing);
-                    emit_decoder_if_changed(
-                        &watched_playbin,
-                        &mut last_decoder,
-                        &watched_context,
-                    );
+                    emit_decoder_if_changed(&watched_playbin, &mut last_decoder);
                 }
                 gst::MessageView::AsyncDone(_) | gst::MessageView::StreamStart(_) => {
-                    emit_decoder_if_changed(
-                        &watched_playbin,
-                        &mut last_decoder,
-                        &watched_context,
-                    );
+                    emit_decoder_if_changed(&watched_playbin, &mut last_decoder);
                 }
                 _ => {}
             }
@@ -579,8 +561,7 @@ fn begin_recovery(context: &ControllerContext, failed_generation: u64) {
 
         inner.generation = inner.generation.wrapping_add(1);
         let retry_generation = inner.generation;
-        let delay = retry_delay(inner.retry_index);
-        inner.retry_index = (inner.retry_index + 1).min(RETRY_DELAYS.len() - 1);
+        let delay = inner.backoff.next_delay();
         inner.healthy_since = None;
         (
             inner.active.take(),
@@ -742,19 +723,6 @@ fn is_current_generation(context: &ControllerContext, generation: u64) -> bool {
     })
 }
 
-fn retry_delay(retry_index: usize) -> Duration {
-    RETRY_DELAYS[retry_index.min(RETRY_DELAYS.len() - 1)]
-}
-
-fn stream_is_stalled(
-    frame_count: u64,
-    elapsed_since_start: Duration,
-    elapsed_since_progress: Duration,
-) -> bool {
-    (frame_count == 0 && elapsed_since_start >= STARTUP_TIMEOUT)
-        || (frame_count > 0 && elapsed_since_progress >= STALL_TIMEOUT)
-}
-
 pub(super) fn configure_rtsp_source(playbin: &gst::Element) {
     playbin.connect_local("source-setup", false, move |values| {
         let Some(source) = values
@@ -788,11 +756,7 @@ pub(super) fn configure_rtsp_source(playbin: &gst::Element) {
     });
 }
 
-fn emit_decoder_if_changed(
-    playbin: &gst::Element,
-    last_decoder: &mut Option<DecoderInfo>,
-    context: &ControllerContext,
-) {
+fn emit_decoder_if_changed(playbin: &gst::Element, last_decoder: &mut Option<DecoderInfo>) {
     let decoder = detect_video_decoders(playbin);
     if decoder.factories.is_empty() || last_decoder.as_ref() == Some(&decoder) {
         return;
@@ -804,7 +768,6 @@ fn emit_decoder_if_changed(
         "selected video decoder"
     );
     *last_decoder = Some(decoder.clone());
-    emit_event(context, PlaybackEvent::DecoderChanged(decoder));
 }
 
 fn detect_video_decoders(playbin: &gst::Element) -> DecoderInfo {
@@ -869,7 +832,9 @@ fn message_is_from(message: &gst::MessageRef, element: &gst::Element) -> bool {
 }
 
 pub(crate) fn validate_rtsp_uri(uri: &str) -> Result<()> {
-    let uri = uri.trim();
+    if uri.trim() != uri {
+        bail!("RTSP URL must not have leading or trailing whitespace");
+    }
     let lower = uri.to_ascii_lowercase();
 
     if uri.is_empty() {
@@ -883,8 +848,19 @@ pub(crate) fn validate_rtsp_uri(uri: &str) -> Result<()> {
     }
 
     let authority_start = uri.find("://").map_or(0, |index| index + 3);
-    let authority = &uri[authority_start..];
-    if authority.is_empty() || authority.starts_with('/') {
+    let authority = uri[authority_start..]
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or_default();
+    let host = authority
+        .rsplit_once('@')
+        .map_or(authority, |(_, host)| host);
+    let valid_host = if host.starts_with('[') {
+        host.find(']').is_some_and(|end| end > 1)
+    } else {
+        !host.split(':').next().unwrap_or_default().is_empty()
+    };
+    if !valid_host {
         bail!("RTSP URL must include a host");
     }
 
@@ -922,39 +898,14 @@ pub(crate) fn redact_sensitive_text(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn uses_the_specified_reconnect_backoff() {
-        let seconds = (0..8)
-            .map(|index| retry_delay(index).as_secs())
-            .collect::<Vec<_>>();
-        assert_eq!(seconds, [1, 2, 5, 10, 15, 30, 30, 30]);
-    }
-
-    #[test]
-    fn watchdog_covers_startup_and_active_stream_stalls() {
-        assert!(!stream_is_stalled(
-            0,
-            STARTUP_TIMEOUT - Duration::from_millis(1),
-            Duration::ZERO
-        ));
-        assert!(stream_is_stalled(0, STARTUP_TIMEOUT, Duration::ZERO));
-        assert!(!stream_is_stalled(
-            10,
-            Duration::from_secs(60),
-            STALL_TIMEOUT - Duration::from_millis(1)
-        ));
-        assert!(stream_is_stalled(
-            10,
-            Duration::from_secs(60),
-            STALL_TIMEOUT
-        ));
-    }
+    use proptest::prelude::*;
+    use serial_test::serial;
 
     #[test]
     fn validates_supported_rtsp_urls() {
         assert!(validate_rtsp_uri("rtsp://camera.local/stream").is_ok());
         assert!(validate_rtsp_uri("rtsps://user:password@camera.local/stream").is_ok());
+        assert!(validate_rtsp_uri("RTSP://[::1]:8554/live").is_ok());
     }
 
     #[test]
@@ -963,6 +914,9 @@ mod tests {
         assert!(validate_rtsp_uri("https://camera.local/stream").is_err());
         assert!(validate_rtsp_uri("rtsp:///stream").is_err());
         assert!(validate_rtsp_uri("rtsp://camera.local/bad stream").is_err());
+        assert!(validate_rtsp_uri(" rtsp://camera.local/stream").is_err());
+        assert!(validate_rtsp_uri("rtsp://:8554/stream").is_err());
+        assert!(validate_rtsp_uri("rtsp://?token=secret").is_err());
     }
 
     #[test]
@@ -991,5 +945,104 @@ mod tests {
             redact_sensitive_text("(RTSP://user:secret@camera.local/live)"),
             "(RTSP://<credentials>@camera.local/live)"
         );
+        assert_eq!(
+            redact_sensitive_text("'rtsps://user:p%40ss@[::1]:8554/live'"),
+            "'rtsps://<credentials>@[::1]:8554/live'"
+        );
+        let multiple = "rtsp://one:a@first/live and rtsps://two:b@second/live";
+        let redacted = redact_sensitive_text(multiple);
+        assert!(!redacted.contains("one:a"));
+        assert!(!redacted.contains("two:b"));
+        assert_eq!(redact_sensitive_text(&redacted), redacted);
+    }
+
+    proptest! {
+        #[test]
+        fn generated_userinfo_is_never_retained(
+            user in "[a-zA-Z0-9]{1,16}",
+            password in "[a-zA-Z0-9_-]{1,24}",
+        ) {
+            let text = format!("failed: rtsp://{user}:{password}@camera.local/live");
+            let redacted = redact_sensitive_text(&text);
+            let credentials = format!("{user}:{password}");
+            prop_assert!(!redacted.contains(&credentials));
+            prop_assert!(redacted.contains("rtsp://<credentials>@camera.local/live"));
+        }
+    }
+
+    #[test]
+    fn event_dispatcher_preserves_reentrant_event_order() {
+        let observed = Rc::new(RefCell::new(Vec::new()));
+        let events = Rc::new(RefCell::new(EventDispatcher {
+            handler: None,
+            queued: VecDeque::new(),
+            dispatching: false,
+        }));
+        let weak_events = Rc::downgrade(&events);
+        let observed_for_handler = observed.clone();
+        events.borrow_mut().handler = Some(Box::new(move |event| {
+            observed_for_handler.borrow_mut().push(event.clone());
+            if event == PlaybackEvent::StateChanged(PlaybackState::Starting) {
+                let context = ControllerContext {
+                    inner: Weak::new(),
+                    events: weak_events.clone(),
+                };
+                emit_event(
+                    &context,
+                    PlaybackEvent::StateChanged(PlaybackState::Playing),
+                );
+            }
+        }));
+        let context = ControllerContext {
+            inner: Weak::new(),
+            events: Rc::downgrade(&events),
+        };
+
+        emit_event(
+            &context,
+            PlaybackEvent::StateChanged(PlaybackState::Starting),
+        );
+
+        assert_eq!(
+            *observed.borrow(),
+            [
+                PlaybackEvent::StateChanged(PlaybackState::Starting),
+                PlaybackEvent::StateChanged(PlaybackState::Playing),
+            ]
+        );
+        assert!(!events.borrow().dispatching);
+    }
+
+    #[test]
+    #[serial]
+    fn media_component_synthetic_pipeline_delivers_frames_and_eos() {
+        gst::init().unwrap();
+        let pipeline = gst::parse::launch(
+            "videotestsrc num-buffers=5 ! videoconvert ! fakesink name=test_sink sync=false",
+        )
+        .unwrap()
+        .downcast::<gst::Pipeline>()
+        .unwrap();
+        let sink = pipeline.by_name("test_sink").unwrap();
+        let pad = sink.static_pad("sink").unwrap();
+        let frames = Arc::new(AtomicU64::new(0));
+        let probe_frames = frames.clone();
+        let probe = pad
+            .add_probe(gst::PadProbeType::BUFFER, move |_, _| {
+                probe_frames.fetch_add(1, Ordering::Relaxed);
+                gst::PadProbeReturn::Ok
+            })
+            .unwrap();
+
+        pipeline.set_state(gst::State::Playing).unwrap();
+        let message = pipeline.bus().unwrap().timed_pop_filtered(
+            gst::ClockTime::from_seconds(5),
+            &[gst::MessageType::Eos, gst::MessageType::Error],
+        );
+        pipeline.set_state(gst::State::Null).unwrap();
+        pad.remove_probe(probe);
+
+        assert!(message.is_some_and(|message| matches!(message.view(), gst::MessageView::Eos(_))));
+        assert_eq!(frames.load(Ordering::Relaxed), 5);
     }
 }

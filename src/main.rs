@@ -1,12 +1,7 @@
-mod application;
-mod config;
-mod media;
-mod ui;
-
 use anyhow::{Context, Result};
 use clap::Parser;
 
-use crate::application::Options;
+use camstation::application::{self, Options};
 
 fn main() -> Result<()> {
     let options = Options::parse();

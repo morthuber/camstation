@@ -2,6 +2,7 @@
 
 mod connection_test;
 mod controller;
+mod lifecycle;
 
 pub(crate) use connection_test::ConnectionTest;
-pub(crate) use controller::{CameraController, DecoderInfo, PlaybackEvent, PlaybackState};
+pub(crate) use controller::{CameraController, PlaybackEvent, PlaybackState};

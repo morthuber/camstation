@@ -652,7 +652,7 @@ mod tests {
     }
 
     #[test]
-    fn unknown_fields_and_pre_dimension_m3_files_are_accepted() {
+    fn unknown_fields_and_legacy_dimension_defaults_are_accepted() {
         let view_id = Uuid::new_v4();
         let json = format!(
             r#"{{
@@ -720,5 +720,195 @@ mod tests {
 
         assert!(error.to_string().contains("refusing to overwrite"));
         assert_eq!(fs::read(path).unwrap(), malformed);
+    }
+
+    #[test]
+    fn validation_covers_identity_and_tile_limits() {
+        let mut duplicate_camera = AppConfig::default();
+        let front_camera = camera("Front");
+        duplicate_camera
+            .cameras
+            .extend([front_camera.clone(), front_camera.clone()]);
+        assert!(
+            duplicate_camera
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("duplicate camera")
+        );
+
+        let mut duplicate_view = AppConfig::default();
+        duplicate_view.views.push(duplicate_view.views[0].clone());
+        assert!(
+            duplicate_view
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("duplicate view ID")
+        );
+
+        let mut duplicate_tile = AppConfig::default();
+        duplicate_tile.cameras.push(front_camera.clone());
+        duplicate_tile.views[0].columns = 2;
+        duplicate_tile.views[0].tiles = vec![
+            ViewTile {
+                camera_id: front_camera.id,
+                column: 0,
+                row: 0,
+                column_span: 1,
+                row_span: 1,
+            },
+            ViewTile {
+                camera_id: front_camera.id,
+                column: 1,
+                row: 0,
+                column_span: 1,
+                row_span: 1,
+            },
+        ];
+        assert!(
+            duplicate_tile
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("more than once")
+        );
+
+        let mut too_many = AppConfig::default();
+        too_many.views[0].columns = 11;
+        for column in 0..11 {
+            let camera = camera(&format!("Camera {column}"));
+            too_many.views[0].tiles.push(ViewTile {
+                camera_id: camera.id,
+                column,
+                row: 0,
+                column_span: 1,
+                row_span: 1,
+            });
+            too_many.cameras.push(camera);
+        }
+        assert!(
+            too_many
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("at most 10")
+        );
+    }
+
+    #[test]
+    fn validation_rejects_zero_and_overflowing_geometry() {
+        let mut zero_grid = AppConfig::default();
+        zero_grid.views[0].columns = 0;
+        assert!(
+            zero_grid
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("at least one")
+        );
+
+        let mut oversized_grid = AppConfig::default();
+        oversized_grid.views[0].rows = MAX_GRID_EXTENT + 1;
+        assert!(
+            oversized_grid
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("maximum grid")
+        );
+
+        let mut zero_span = AppConfig::default();
+        let camera = camera("Zero span");
+        zero_span.cameras.push(camera.clone());
+        zero_span.views[0].tiles.push(ViewTile {
+            camera_id: camera.id,
+            column: 0,
+            row: 0,
+            column_span: 0,
+            row_span: 1,
+        });
+        assert!(
+            zero_span
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("zero span")
+        );
+
+        let mut overflow = zero_span;
+        overflow.views[0].columns = MAX_GRID_EXTENT;
+        overflow.views[0].tiles[0] = ViewTile {
+            camera_id: camera.id,
+            column: u32::MAX,
+            row: 0,
+            column_span: 2,
+            row_span: 1,
+        };
+        assert!(
+            overflow
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("overflow")
+        );
+    }
+
+    #[test]
+    fn missing_required_json_fields_are_rejected() {
+        let error = serde_json::from_str::<AppConfig>(
+            r#"{"schema_version":1,"cameras":[],"views":[],"startup_view":null}"#,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("kiosk_on_start"));
+    }
+
+    #[test]
+    fn invalid_candidate_never_touches_existing_file() {
+        let directory = TestDirectory::new();
+        let store = ConfigStore::from_override(Some(&directory.config_path())).unwrap();
+        let valid = AppConfig::default();
+        store.save(&valid).unwrap();
+        let before = fs::read(store.path()).unwrap();
+        let invalid = AppConfig {
+            views: Vec::new(),
+            startup_view: None,
+            ..valid
+        };
+
+        assert!(store.save(&invalid).is_err());
+        assert_eq!(fs::read(store.path()).unwrap(), before);
+    }
+
+    #[test]
+    fn filesystem_failures_are_actionable_and_do_not_create_config() {
+        let directory = tempfile::tempdir().unwrap();
+        let blocked_parent = directory.path().join("not-a-directory");
+        fs::write(&blocked_parent, b"keep me").unwrap();
+        let path = blocked_parent.join("config.json");
+        let store = ConfigStore::from_override(Some(&path)).unwrap();
+
+        let error = store.save(&AppConfig::default()).unwrap_err();
+
+        assert!(error.to_string().contains("create configuration directory"));
+        assert_eq!(fs::read(&blocked_parent).unwrap(), b"keep me");
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn loading_a_directory_reports_read_failure() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ConfigStore::from_override(Some(directory.path())).unwrap();
+
+        let error = store.load().unwrap_err();
+
+        assert!(error.to_string().contains("failed to read configuration"));
+    }
+
+    #[test]
+    fn explicit_configuration_path_is_preserved() {
+        let relative = Path::new("relative/config.json");
+        let store = ConfigStore::from_override(Some(relative)).unwrap();
+        assert_eq!(store.path(), relative);
     }
 }

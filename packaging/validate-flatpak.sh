@@ -3,7 +3,7 @@ set -euo pipefail
 
 app_id="org.camstation.camstation"
 flatpak info --user "$app_id" >/dev/null || {
-  echo "Install dist/Camstation.flatpak for the current user first." >&2
+  echo "Install the versioned Camstation Flatpak bundle for the current user first." >&2
   exit 1
 }
 

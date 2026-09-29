@@ -22,7 +22,7 @@
         in
         pkgs.rustPlatform.buildRustPackage {
           pname = "camstation";
-          version = "0.1.0";
+          version = "0.2.0";
           src = self;
 
           cargoLock.lockFile = ./Cargo.lock;
@@ -93,6 +93,7 @@
           default = pkgs.mkShell {
             packages = with pkgs; [
               cargo
+              cargo-llvm-cov
               clippy
               curl
               flatpak
@@ -100,12 +101,15 @@
               gtk4
               intel-media-driver
               libva-utils
+              llvmPackages.llvm
               pkg-config
               patchelf
               rustc
               rustfmt
               appstream
               desktop-file-utils
+              xauth
+              xvfb-run
               (python3.withPackages (pythonPackages: [
                 pythonPackages.aiohttp
                 pythonPackages.tomlkit
@@ -119,6 +123,8 @@
             ];
 
             RUST_BACKTRACE = "1";
+            LLVM_COV = "${pkgs.llvmPackages.llvm}/bin/llvm-cov";
+            LLVM_PROFDATA = "${pkgs.llvmPackages.llvm}/bin/llvm-profdata";
 
             shellHook = ''
               echo "Camstation development shell"

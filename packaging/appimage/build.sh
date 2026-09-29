@@ -25,7 +25,8 @@ done
 
 tools_dir="$root/dist/appimage-tools"
 appdir="$root/dist/AppDir"
-output="$root/dist/Camstation-0.1.0-x86_64.AppImage"
+version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
+output="$root/dist/Camstation-${version}-x86_64.AppImage"
 rm -rf "$appdir"
 mkdir -p "$appdir" "$root/dist"
 

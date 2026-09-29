@@ -7,7 +7,8 @@ Platform 50 installed.
 
 ## Completed
 
-- Rust formatting, check, strict Clippy, and all 25 unit tests passed.
+- Rust formatting, check, strict Clippy, 50 default tests, and the serialized
+  Xvfb GTK workflow test passed.
 - Desktop entry and AppStream metadata validated.
 - `nix flake check path:.` passed.
 - `nix build path:.#camstation` built the application and ran all tests in
