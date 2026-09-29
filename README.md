@@ -40,6 +40,14 @@ cargo run -- --rtsp-url 'rtsp://user:password@camera.local/stream'
 
 The M1 pipeline uses RTSP-over-TCP with its jitter-buffer latency set to zero, RTSP buffering disabled, stale data dropping enabled, and unsynchronized frame presentation. This always favors the lowest practical latency over jitter tolerance and smooth frame pacing. Playback starts with audio muted and reports whether the selected decoder appears to be hardware accelerated. The URL remains visible in the configuration field, but credentials are redacted from routine application logs and pipeline error text.
 
+A working local development stream is available for repeatable playback tests:
+
+```sh
+cargo run -- --rtsp-url 'rtsp://127.0.0.1:8554/city-traffic' --log camview=debug
+```
+
+At the time it was added, this H.264 stream reached `Playing` and selected `avdec_h264` on the AMD development workstation.
+
 Use `--kiosk` with a startup URL to hide the M1 connection controls and open fullscreen:
 
 ```sh
@@ -64,7 +72,7 @@ gst-inspect-1.0 vah264dec
 gst-inspect-1.0 vah265dec
 ```
 
-VA decoder factories are registered only when libva can initialize a compatible local GPU and driver. Software decoder fallback is expected when a VA decoder is unavailable or does not support a stream's codec profile. The Nix shell includes Intel's media driver for the target deployment hardware.
+GStreamer automatically selects among compatible installed decoders. Camview recognizes GStreamer's `Hardware` decoder metadata and common VA-API, Intel QSV/MSDK, NVIDIA, V4L2, Vulkan, AMD AMF, and platform decoder factory names. Software fallback is expected when no compatible hardware decoder is registered or when the hardware does not support the stream's codec profile. The Nix shell includes Intel's media driver because Intel is the initial deployment target; other vendors require their corresponding system driver and GStreamer plugin.
 
 ## Logging
 

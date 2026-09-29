@@ -192,7 +192,7 @@ fn emit_decoder_if_changed<F>(
 }
 
 fn detect_video_decoders(playbin: &gst::Element) -> DecoderInfo {
-    let mut factories = playbin
+    let mut decoders = playbin
         .clone()
         .downcast::<gst::Bin>()
         .ok()
@@ -203,26 +203,37 @@ fn detect_video_decoders(playbin: &gst::Element) -> DecoderInfo {
                 .filter_map(|item| item.ok())
         })
         .filter_map(|element| element.factory())
-        .filter(|factory| {
-            factory
-                .metadata("klass")
-                .is_some_and(|klass| klass.contains("Decoder") && klass.contains("Video"))
+        .filter_map(|factory| {
+            let klass = factory.metadata("klass")?;
+            (klass.contains("Decoder") && klass.contains("Video")).then(|| {
+                let name = factory.name().to_string();
+                let hardware_accelerated = is_hardware_decoder(&name, klass);
+                (name, hardware_accelerated)
+            })
         })
-        .map(|factory| factory.name().to_string())
         .collect::<Vec<_>>();
 
-    factories.sort_unstable();
-    factories.dedup();
-
-    let hardware_accelerated = factories.iter().any(|factory| {
-        let factory = factory.to_ascii_lowercase();
-        factory.starts_with("va") || factory.contains("vaapi") || factory.contains("qsv")
-    });
+    decoders.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+    decoders.dedup_by(|left, right| left.0 == right.0);
 
     DecoderInfo {
-        factories,
-        hardware_accelerated,
+        hardware_accelerated: decoders.iter().any(|(_, hardware)| *hardware),
+        factories: decoders.into_iter().map(|(name, _)| name).collect(),
     }
+}
+
+fn is_hardware_decoder(factory_name: &str, klass: &str) -> bool {
+    if klass.split('/').any(|component| component == "Hardware") {
+        return true;
+    }
+
+    let name = factory_name.to_ascii_lowercase();
+    [
+        "amf", "d3d11", "d3d12", "msdk", "nv", "omx", "qsv", "v4l2", "va", "vtdec", "vulkan",
+    ]
+    .iter()
+    .any(|prefix| name.starts_with(prefix))
+        || name.contains("vaapi")
 }
 
 fn message_is_from(message: &gst::MessageRef, element: &gst::Element) -> bool {
@@ -299,6 +310,18 @@ mod tests {
         assert!(validate_rtsp_uri("https://camera.local/stream").is_err());
         assert!(validate_rtsp_uri("rtsp:///stream").is_err());
         assert!(validate_rtsp_uri("rtsp://camera.local/bad stream").is_err());
+    }
+
+    #[test]
+    fn classifies_hardware_decoders_generically() {
+        assert!(is_hardware_decoder(
+            "custom_decoder",
+            "Codec/Decoder/Video/Hardware"
+        ));
+        assert!(is_hardware_decoder("vah264dec", "Codec/Decoder/Video"));
+        assert!(is_hardware_decoder("nvh265dec", "Codec/Decoder/Video"));
+        assert!(is_hardware_decoder("v4l2h264dec", "Codec/Decoder/Video"));
+        assert!(!is_hardware_decoder("avdec_h264", "Codec/Decoder/Video"));
     }
 
     #[test]

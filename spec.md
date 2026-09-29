@@ -10,7 +10,7 @@ The initial target is eight simultaneous streams on a moderately specified x86-6
 
 - Display up to ten heterogeneous RTSP streams, with eight as the normal workload.
 - Keep live-view latency below two seconds on a healthy local network.
-- Prefer Intel VA-API hardware decoding and fall back to software decoding when needed.
+- Prefer any compatible hardware decoder available through GStreamer and fall back to software decoding when needed.
 - Let users add cameras and arrange or resize their tiles entirely through the GUI.
 - Save multiple named layouts and restore a selected layout at startup.
 - Recover automatically from unavailable, interrupted, or stalled streams.
@@ -56,7 +56,7 @@ Flatpak is the primary cross-distribution format. It provides more predictable G
 The Flatpak will require:
 
 - Network access for RTSP streams.
-- DRI device access for VA-API.
+- GPU device access for available hardware-decoding backends.
 - Wayland and fallback X11 sockets.
 - PipeWire/PulseAudio access for optional camera audio.
 - Persistent application configuration storage.
@@ -71,7 +71,7 @@ An AppImage is not part of the MVP. It can be reconsidered after Flatpak validat
 | GUI | GTK 4 via gtk-rs |
 | Media | GStreamer 1.x via gstreamer-rs |
 | Video presentation | `gtk4paintablesink` |
-| Hardware decoding | GStreamer VA decoders, selected through decoder autoplugging |
+| Hardware decoding | Available GStreamer hardware decoders, selected through decoder autoplugging |
 | Configuration | Versioned JSON via Serde |
 | Logging | `tracing` with environment-filter support |
 | CLI | `clap` |
@@ -177,7 +177,7 @@ The application will build an RTSP pipeline dynamically:
 
 1. Connect to the RTSP source.
 2. Select the appropriate RTP depayloader and parser.
-3. Autoplug a compatible decoder, preferring VA-API where supported.
+3. Autoplug a compatible decoder, preferring an available hardware backend where supported.
 4. Present video through `gtk4paintablesink` without routing normal playback frames through Rust.
 5. If audio exists, decode it into a controllable volume element and system audio sink.
 6. Disable avoidable buffering and drop stale data rather than allow latency to grow.
@@ -186,9 +186,9 @@ The initial implementation uses `playbin3` for broad codec compatibility and con
 
 ### 9.3 Hardware acceleration
 
-Decoder selection will prefer modern GStreamer VA decoders such as `vah264dec` and `vah265dec`. Software decoding remains a fallback for unsupported codecs or profiles.
+GStreamer decoder autoplugging selects among compatible registered factories and should prefer hardware decoders according to their plugin ranks. Supported backends may include VA-API, Intel QSV/MSDK, NVIDIA, V4L2, Vulkan, AMD AMF, or other platform plugins. Software decoding remains a fallback for unavailable hardware, unsupported codecs, or unsupported profiles.
 
-The diagnostics UI and logs must expose the selected decoder so hardware acceleration can be verified rather than assumed.
+The diagnostics UI and logs must expose the selected decoder and classify hardware acceleration using GStreamer factory metadata with known-backend fallbacks, so acceleration can be verified rather than assumed. Packaging provides Intel's media driver for the initial target, while runtime selection remains vendor-neutral.
 
 Main/substream selection is supported in the data model. The grid should normally use a suitable substream when one is configured; future expanded-view behavior may switch to the main stream.
 
@@ -354,7 +354,7 @@ GUI startup remains the default. CLI options support deployment and troubleshoot
 
 - H.264, H.265, and MJPEG cameras where available.
 - Streams with and without audio.
-- Intel VA-API decoder selection.
+- Hardware-decoder selection on available GPU backends, including Intel VA-API on the target deployment system.
 - Eight simultaneous streams.
 - Camera power loss and recovery.
 - Network loss and recovery.
@@ -364,7 +364,7 @@ GUI startup remains the default. CLI options support deployment and troubleshoot
 - Kiosk startup after reboot.
 - Long-running soak test.
 
-A local RTSP test server may be introduced for deterministic integration tests, but is not an application runtime dependency.
+A local H.264 RTSP test stream is available at `rtsp://127.0.0.1:8554/city-traffic` for repeatable development tests. It is not an application runtime dependency.
 
 ## 17. MVP acceptance criteria
 
@@ -372,7 +372,7 @@ The MVP is complete when:
 
 1. A user can add, edit, test, and remove manually configured RTSP cameras in the GUI.
 2. Eight cameras can be displayed concurrently on the target Intel desktop, subject to codec capabilities of that hardware.
-3. Heterogeneous supported streams select an appropriate decoder, preferring VA-API.
+3. Heterogeneous supported streams select an appropriate decoder, preferring a compatible available hardware backend.
 4. The user can create multiple named views and graphically move and resize tiles on a snapped grid.
 5. Saved configuration and the selected startup view survive application restarts.
 6. Kiosk mode starts fullscreen without requiring interaction.
