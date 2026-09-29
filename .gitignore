@@ -1,0 +1,6 @@
+/target/
+/.direnv/
+/.envrc
+/result
+/result-*
+*.log

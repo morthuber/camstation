@@ -1,0 +1,4 @@
+[alias]
+xtask-check = "check --all-targets --all-features"
+xtask-clippy = "clippy --all-targets --all-features -- -D warnings"
+xtask-test = "test --all-targets --all-features"
