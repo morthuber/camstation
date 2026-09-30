@@ -28,7 +28,27 @@ export LINUXDEPLOY="$tools_dir/linuxdeploy-x86_64.AppImage"
 export DEPLOY_GTK_VERSION=4
 export GSTREAMER_INCLUDE_BAD_PLUGINS=1
 
-"$LINUXDEPLOY" \
+# linuxdeploy ships as an AppImage, so running it needs a usable FUSE setup.
+# Hosts without one (NixOS, most container images, hardened kernels) fall back
+# to the AppImage runtime's extract-and-run mode instead of failing outright.
+# Set CAMSTATION_APPIMAGE_EXTRACT_AND_RUN=1 to force the fallback.
+fuse_usable() {
+  [[ "${CAMSTATION_APPIMAGE_EXTRACT_AND_RUN:-0}" != "1" ]] || return 1
+  [[ -e /dev/fuse && -r /dev/fuse && -w /dev/fuse ]] || return 1
+  command -v fusermount >/dev/null 2>&1 ||
+    command -v fusermount3 >/dev/null 2>&1
+}
+
+run_linuxdeploy() {
+  if fuse_usable; then
+    "$LINUXDEPLOY" "$@"
+  else
+    echo "FUSE is unavailable; running linuxdeploy via extract-and-run (slower)."
+    APPIMAGE_EXTRACT_AND_RUN=1 "$LINUXDEPLOY" "$@"
+  fi
+}
+
+run_linuxdeploy \
   --appdir "$appdir" \
   --executable "$root/target/release/camstation" \
   --desktop-file "$root/resources/org.camstation.camstation.desktop" \
@@ -82,7 +102,8 @@ find "$appdir/usr/lib" -maxdepth 1 \( -type f -o -type l \) \
      -o -name 'libwayland-*.so*' -o -name 'libpipewire-*.so*' \) -delete
 
 rm -f "$output"
-OUTPUT="$output" "$LINUXDEPLOY" --appdir "$appdir" --output appimage
+export OUTPUT="$output"
+run_linuxdeploy --appdir "$appdir" --output appimage
 sha256sum "$output" > "$output.sha256"
 
 echo "Created artifact: $output"
