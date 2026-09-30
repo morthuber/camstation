@@ -166,6 +166,13 @@ fn build_loaded_main_window(
         crate::config::BackgroundMode::Black => 2,
     });
 
+    let about_button = gtk4::Button::builder()
+        .icon_name("help-about-symbolic")
+        .tooltip_text("About Camstation")
+        .build();
+    about_button.set_widget_name("about-button");
+    about_button.update_property(&[gtk4::accessible::Property::Label("About")]);
+
     let controls = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
     controls.set_hexpand(true);
     controls.append(&view_dropdown);
@@ -173,6 +180,7 @@ fn build_loaded_main_window(
     controls.append(&views_button);
     controls.append(&edit_button);
     controls.append(&background_dropdown);
+    controls.append(&about_button);
 
     let cancel_edit = gtk4::Button::with_label("Cancel");
     let save_edit = gtk4::Button::with_label("Save layout");
@@ -420,6 +428,23 @@ fn build_loaded_main_window(
     fit_grid_button.connect_clicked({
         let state = state.clone();
         move |_| update_editing_view(&state, |view| Ok(layout::fit_dimensions(view)))
+    });
+    about_button.connect_clicked({
+        let window = window.clone();
+        move |_| {
+            let dialog = gtk4::AboutDialog::builder()
+                .program_name("Camstation")
+                .version(env!("CARGO_PKG_VERSION"))
+                .license_type(gtk4::License::MitX11)
+                .website("https://github.com/morthuber/camstation")
+                .website_label("GitHub")
+                .comments("A configurable multi-camera RTSP station for Linux")
+                .authors(&["Camstation contributors"][..])
+                .transient_for(&window)
+                .modal(true)
+                .build();
+            dialog.present();
+        }
     });
 
     let key_controller = gtk4::EventControllerKey::new();
