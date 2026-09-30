@@ -85,5 +85,5 @@ rm -f "$output"
 OUTPUT="$output" "$LINUXDEPLOY" --appdir "$appdir" --output appimage
 sha256sum "$output" > "$output.sha256"
 
-echo "Created beta artifact: $output"
+echo "Created artifact: $output"
 echo "Validate it on Ubuntu 24.04 and with appimage-run on current NixOS."

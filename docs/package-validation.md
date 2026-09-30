@@ -12,13 +12,13 @@ make package-flatpak
 make validate-flatpak
 ```
 
-For a release candidate, also build the Flatpak bundle and the beta AppImage
+For a release candidate, also build the Flatpak bundle and the AppImage
 on its Ubuntu 24.04 build host. Retain SHA-256 checksums with released files.
 
 ## Functional matrix
 
 Run these checks for the native Nix package and Flatpak on Wayland and X11.
-Run the beta AppImage directly on Ubuntu 24.04 and through `appimage-run` on
+Run the AppImage directly on Ubuntu 24.04 and through `appimage-run` on
 current NixOS.
 
 - Start with no existing configuration.

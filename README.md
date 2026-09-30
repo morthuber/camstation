@@ -7,7 +7,7 @@ Camstation is a native Linux application for displaying multiple RTSP cameras in
 Camstation provides camera and view management, persistent graphical layouts,
 automatic stream recovery, exclusive audio selection, fullscreen kiosk behavior,
 and decoder diagnostics for up to ten RTSP streams. Supported Flatpak and native
-Nix packages are available alongside a best-effort AppImage beta. The software
+Nix packages are available alongside a best-effort AppImage. The software
 package baseline covers H.264, H.265, and MJPEG through GStreamer. Intel VA-API
 certification and long-running deployment soak testing remain
 environment-dependent follow-up work.
@@ -137,7 +137,7 @@ host:
 make package-appimage
 ```
 
-The AppImage is a beta artifact. Software decoding is its compatibility
+The AppImage is provided as a best-effort artifact. Software decoding is its compatibility
 baseline, and current NixOS requires `appimage-run`. See
 [`packaging/appimage/README.md`](packaging/appimage/README.md).
 

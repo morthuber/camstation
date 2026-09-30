@@ -18,7 +18,7 @@
 ## 0.2.0 — 2026-09-29
 
 - Renamed the application to Camstation and finalized `org.camstation.camstation`.
-- Added supported Flatpak and native Nix packaging plus an AppImage beta recipe.
+- Added supported Flatpak and native Nix packaging plus an AppImage recipe.
 - Added MIT licensing, desktop integration, package validation, and release metadata.
 - Added persistent cameras, named views, startup selection, and atomic configuration backups.
 - Added graphical move, resize, snapping, overlap rejection, and direct camera placement.

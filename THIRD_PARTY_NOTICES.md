@@ -14,7 +14,7 @@ third-party components under their own licenses, including:
 
 The Flatpak uses media components supplied and updated by the GNOME and
 Freedesktop runtimes. The Nix package composes the corresponding nixpkgs
-packages. The beta AppImage bundles copies of its userspace dependencies and
+packages. The AppImage bundles copies of its userspace dependencies and
 must ship their license texts when it is prepared for release.
 
 H.264 and H.265/HEVC can be subject to patents in some jurisdictions. Software

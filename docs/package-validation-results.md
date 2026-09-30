@@ -29,7 +29,7 @@ Platform 50 installed.
 
 - Build and run the Flatpak on Ubuntu 24.04 under Wayland and X11.
 - Build and run the Nix package on current NixOS.
-- Build the beta AppImage on Ubuntu 24.04 and smoke-test it directly.
+- Build the AppImage on Ubuntu 24.04 and smoke-test it directly.
 - Run that AppImage through `appimage-run` on current NixOS.
 - Exercise actual H.265 and MJPEG RTSP streams; their required decoder elements
   are present, but no corresponding live fixtures were available here.

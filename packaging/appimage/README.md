@@ -1,4 +1,4 @@
-# AppImage beta
+# AppImage
 
 The AppImage is an additional best-effort artifact. Flatpak and the native Nix
 package are the supported Camstation distributions.
@@ -16,7 +16,7 @@ hook so GTK can use native Wayland rather than forcing X11. GStreamer core and
 plugins are isolated inside the image, while hardware-sensitive display, GPU,
 and audio-server libraries are supplied by the host.
 
-Software decoding of H.264, H.265, and MJPEG is the beta acceptance baseline.
+Software decoding of H.264, H.265, and MJPEG is the acceptance baseline.
 Hardware decoding is opportunistic and may vary with host drivers.
 
 On NixOS, use:

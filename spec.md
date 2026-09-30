@@ -61,7 +61,7 @@ The Flatpak requires:
 - PipeWire/PulseAudio access for optional camera audio.
 - Persistent application configuration storage.
 
-An AppImage is provided as a best-effort beta artifact. Flatpak and the native
+An AppImage is provided as a best-effort artifact. Flatpak and the native
 Nix package are the supported distribution mechanisms. AppImage hardware
 decoding is opportunistic, and NixOS users run it through `appimage-run`.
 
