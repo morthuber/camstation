@@ -10,11 +10,13 @@ The demo streams shown in the screenshot use [Fake-RTSP-Stream](https://github.c
 
 Camstation is distributed through three packaging formats:
 
-| Format | Install Command |
-|--------|-----------------|
-| **Flatpak** (recommended) | `flatpak install flathub org.camstation.camstation` |
-| **Nix** | `nix run github:orthuber/camstation` or add `camstation` to your NixOS configuration |
-| **AppImage** | Download from [releases](https://github.com/orthuber/camstation/releases) and run directly |
+| Format | How to get it |
+|--------|---------------|
+| **Flatpak** | Build it yourself — see [Building the Flatpak](#building-the-flatpak). Prebuilt bundles are attached to some [releases](https://github.com/morthuber/camstation/releases). |
+| **Nix** | `nix run github:morthuber/camstation`, or add `camstation` to your NixOS configuration. |
+| **AppImage** | Build it yourself — see [Building the AppImage](#building-the-appimage). A prebuilt one is attached to some [releases](https://github.com/morthuber/camstation/releases). |
+
+Camstation is not published on Flathub, so the Flatpak must be built locally.
 
 ### First Run
 
@@ -133,10 +135,13 @@ make coverage-html  # HTML coverage report (opens in browser)
 
 # Packaging
 make package-nix       # Build Nix package
-make package-flatpak   # Build Flatpak
+make flatpak-sources   # Regenerate flatpak/cargo-sources.json from Cargo.lock
+make package-flatpak   # Build Flatpak (no bundle)
 make bundle-flatpak    # Build Flatpak bundle (.flatpak file)
 make package-appimage  # Build AppImage (host needs gtk4paintablesink)
+make package-appimage-container  # Build AppImage in a pinned container
 make validate-packages # Run validation checklist
+make validate-flatpak  # Validate an installed Flatpak build
 ```
 
 See [`docs/testing.md`](docs/testing.md) for the test-suite split, coverage baseline, and graphical test requirements.
@@ -152,31 +157,91 @@ direnv allow
 
 ## Packaging & Distribution
 
-Build commands for maintainers and CI:
+The Nix, Flatpak, and AppImage builds each need a different toolchain, so they
+run as separate commands rather than one combined target. See
+[`docs/package-validation.md`](docs/package-validation.md) for the repeatable
+checklist and [`docs/package-validation-results.md`](docs/package-validation-results.md)
+for the latest completed/pending matrix.
+
+### Nix package
 
 ```sh
-# Nix
-nix build path:.#camstation
+make package-nix                 # nix build path:.#camstation
 nix run path:.#camstation -- --help
+```
 
-# Flatpak (requires GNOME Platform/SDK 50 + Freedesktop 25.08 Rust extension)
-make bundle-flatpak
-flatpak install --user --reinstall dist/Camstation-$(VERSION).flatpak
+### Building the Flatpak
+
+Requires the GNOME 50 platform and SDK plus the Freedesktop Rust extension,
+which supplies the `gtk4paintablesink` element the application requires:
+
+```sh
+flatpak install --user flathub \
+  org.gnome.Platform//50 org.gnome.Sdk//50 \
+  org.freedesktop.Sdk.Extension.rust-stable//25.08
+```
+
+`flatpak/cargo-sources.json` is generated from `Cargo.lock`. Regenerate it
+whenever Rust dependencies change, otherwise the offline build fails:
+
+```sh
+make flatpak-sources
+```
+
+Then build and bundle:
+
+```sh
+make bundle-flatpak              # build, export a repo, and bundle
+```
+
+That produces `dist/Camstation-<version>.flatpak` with a matching `.sha256`.
+Install and run it:
+
+```sh
+flatpak install --user --reinstall dist/Camstation-*.flatpak
 flatpak run org.camstation.camstation
 ```
-The Flatpak has network, display, GPU, and audio access but no general host home-directory access. See [`flatpak/README.md`](flatpak/README.md) for details.
+
+`make package-flatpak` builds only, into `build-dir/`, without producing a
+bundle. To check an installed build, use `make validate-flatpak` — it asserts
+the runtime version, the `gtk4paintablesink`, `avdec_h264`, `avdec_h265` and
+`jpegdec` elements, the granted permissions, and that the command runs, so
+install the bundle first.
+
+The Flatpak has network, display, GPU, and audio access but no general host
+home-directory access. See [`flatpak/README.md`](flatpak/README.md) for details.
+
+### Building the AppImage
+
+The AppImage bundles its own GStreamer plugins, so the build host must provide
+`gtk4paintablesink`. Debian 12 and Ubuntu 24.04 do **not** package it, so
+building there produces an artifact that installs cleanly and then fails at
+startup. Confirm the element is present before building on a new host:
 
 ```sh
-# AppImage (build host must provide gtk4paintablesink; see below)
-make package-appimage
-make package-appimage-container   # reproducible, containerized build
+gst-inspect-1.0 gtk4paintablesink
 ```
-See [`packaging/appimage/README.md`](packaging/appimage/README.md) for the
-build-host requirements and the glibc baseline of the resulting artifact.
 
-Validation checklists:
-- [`docs/package-validation.md`](docs/package-validation.md) — Repeatable package checklist
-- [`docs/package-validation-results.md`](docs/package-validation-results.md) — Latest completed/pending matrix
+With the element available, build directly:
+
+```sh
+make package-appimage             # writes dist/Camstation-<version>-x86_64.AppImage
+```
+
+Or use the container recipe, which pins a base that provides the element and so
+produces the same artifact regardless of host. It uses podman when available
+and otherwise docker:
+
+```sh
+make package-appimage-container   # writes dist/appimage-container/
+```
+
+Both produce an artifact plus a `.sha256`. The containerized artifact requires
+glibc 2.39 or newer; check a target machine with `getconf GNU_LIBC_VERSION`.
+
+[`packaging/appimage/README.md`](packaging/appimage/README.md) documents the
+per-distro dependency lists, the `gtk4paintablesink` availability table, and
+the glibc baseline.
 
 ## Architecture Overview
 

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- README now documents the full Flatpak and AppImage build procedures: SDK and Rust-extension setup, regenerating `cargo-sources.json`, bundling and installing, validation, and both AppImage build paths with their differing requirements.
+- Corrected README Quick Start: Camstation is not on Flathub, and the Nix reference pointed at the wrong repository owner.
+- Fixed a stale `dist/Camstation-0.2.1.flatpak` path and a `$(VERSION)` reference that was Make syntax used inside a shell command in `flatpak/README.md`.
 - Fixed a stale `Cargo.lock` that made `cargo build --locked` fail, which had broken `make package-appimage` and the Flatpak module on a clean checkout.
 - AppImage checksums now record a bare filename instead of the absolute build-host path, so `sha256sum -c` works on a downloaded artifact.
 - Added `make package-appimage-container`, a containerized AppImage build pinned to a base that provides `gtk4paintablesink`, so the artifact no longer depends on the host toolchain. Uses podman when available, otherwise docker. The result requires glibc 2.39 or newer.

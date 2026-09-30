@@ -9,12 +9,13 @@ Install the SDK and Rust extension, then build a local bundle:
 flatpak install --user flathub org.gnome.Platform//50 org.gnome.Sdk//50 \
   org.freedesktop.Sdk.Extension.rust-stable//25.08
 make bundle-flatpak
-flatpak install --user --reinstall dist/Camstation-0.2.1.flatpak
+flatpak install --user --reinstall dist/Camstation-*.flatpak
 flatpak run org.camstation.camstation
 ```
 
 `cargo-sources.json` is generated from `Cargo.lock`. Regenerate it with
-`make flatpak-sources` whenever Rust dependencies change.
+`make flatpak-sources` whenever Rust dependencies change; the manifest builds
+offline and fails without it.
 
 The manifest grants network, display, GPU, and audio access. It does not grant
 general access to the host home directory. Configuration is stored in the
