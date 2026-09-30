@@ -59,6 +59,12 @@ systemctl --user start camstation.service
 
 The service must run inside a graphical user session with the appropriate `WAYLAND_DISPLAY` or `DISPLAY` environment. Desktop environments differ in how they import these variables into the systemd user manager. If the service cannot open a display, prefer XDG autostart or configure the session to import its display environment.
 
-Camstation does not need to wait for the network before starting. Unavailable streams retain their tiles and reconnect automatically. Avoid putting RTSP credentials directly in the service or desktop entry; keep them in Camstation's user-only configuration file instead.
+Camstation does not need to wait for the network before starting. Unavailable streams retain their tiles and reconnect automatically. Use `--log-file` to write structured logs with daily rotation, preventing unbounded growth in unattended deployments:
+
+```sh
+camstation --kiosk --log-file /var/log/camstation
+```
+
+For systemd services, journald provides log rotation automatically. For file-redirected deployments, `--log-file` is recommended. Avoid putting RTSP credentials directly in the service or desktop entry; keep them in Camstation's user-only configuration file instead.
 
 Test startup, F11 access, network recovery, and display permissions before relying on an unattended deployment.

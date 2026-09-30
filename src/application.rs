@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -35,19 +35,39 @@ pub struct Options {
     /// Override the tracing filter (for example, camstation=debug).
     #[arg(long, value_name = "FILTER")]
     pub log: Option<String>,
+
+    /// Write logs to the given directory with daily rotation (7 files kept).
+    #[arg(long, value_name = "DIR")]
+    pub log_file: Option<PathBuf>,
 }
 
-pub fn init_logging(cli_filter: Option<&str>) -> Result<()> {
+pub fn init_logging(cli_filter: Option<&str>, log_dir: Option<&Path>) -> Result<()> {
     let filter = match cli_filter {
         Some(filter) => EnvFilter::try_new(filter).context("invalid --log filter")?,
         None => EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| EnvFilter::new("camstation=info,warn")),
     };
 
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .try_init()
-        .map_err(|error| anyhow::anyhow!("failed to initialize logging: {error}"))
+    let subscriber_builder = tracing_subscriber::fmt().with_env_filter(filter);
+
+    if let Some(dir) = log_dir {
+        let appender = tracing_appender::rolling::Builder::new()
+            .rotation(tracing_appender::rolling::Rotation::DAILY)
+            .max_log_files(7)
+            .build(dir)
+            .context("failed to initialize log file appender")?;
+        subscriber_builder
+            .with_ansi(false)
+            .with_writer(appender)
+            .try_init()
+            .map_err(|error| anyhow::anyhow!("failed to initialize logging: {error}"))?;
+    } else {
+        subscriber_builder
+            .try_init()
+            .map_err(|error| anyhow::anyhow!("failed to initialize logging: {error}"))?;
+    }
+
+    Ok(())
 }
 
 pub fn run(options: Options) {
@@ -93,6 +113,8 @@ mod tests {
             "rtsps://two/live",
             "--log",
             "camstation=trace",
+            "--log-file",
+            "/var/log/camstation",
         ])
         .unwrap();
         assert!(options.kiosk);
@@ -104,6 +126,10 @@ mod tests {
         );
         assert_eq!(options.rtsp_url, ["rtsp://one/live", "rtsps://two/live"]);
         assert_eq!(options.log.as_deref(), Some("camstation=trace"));
+        assert_eq!(
+            options.log_file.as_deref(),
+            Some(std::path::Path::new("/var/log/camstation"))
+        );
     }
 
     #[test]
@@ -114,5 +140,6 @@ mod tests {
         assert!(options.view.is_none());
         assert!(options.config.is_none());
         assert!(options.rtsp_url.is_empty());
+        assert!(options.log_file.is_none());
     }
 }

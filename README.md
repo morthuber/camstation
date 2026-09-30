@@ -161,7 +161,13 @@ Camstation uses `tracing`. Set `RUST_LOG` for application logs and `GST_DEBUG` f
 RUST_LOG=camstation=debug GST_DEBUG=2 cargo run
 ```
 
-RTSP URLs may contain credentials and must not be written unredacted to routine logs.
+For unattended kiosk deployments, use `--log-file` to write structured logs to a directory with daily rotation (7 files retained). This prevents unbounded log growth:
+
+```sh
+camstation --kiosk --log-file /var/log/camstation
+```
+
+If `--log-file` is omitted, logs are written to stderr, which is suitable for systemd journal integration. RTSP URLs may contain credentials and must not be written unredacted to routine logs.
 
 ## Optional direnv integration
 
