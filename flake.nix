@@ -22,7 +22,9 @@
         in
         pkgs.rustPlatform.buildRustPackage {
           pname = "camstation";
-          version = "0.2.1";
+          # Read from Cargo.toml so the package version cannot drift from the
+          # crate version the way a hardcoded string did.
+          version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package.version;
           src = self;
 
           cargoLock.lockFile = ./Cargo.lock;
