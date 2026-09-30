@@ -2,151 +2,94 @@
 
 Camstation is a native Linux application for displaying multiple RTSP cameras in configurable grid layouts. The product and technical requirements are in [`spec.md`](spec.md).
 
-## Current status
-
-Camstation provides camera and view management, persistent graphical layouts,
-automatic stream recovery, exclusive audio selection, fullscreen kiosk behavior,
-and decoder diagnostics for up to ten RTSP streams. Supported Flatpak and native
-Nix packages are available alongside a best-effort AppImage. The software
-package baseline covers H.264, H.265, and MJPEG through GStreamer. Intel VA-API
-certification and long-running deployment soak testing remain
-environment-dependent follow-up work.
-
 ![Camstation screenshot](screenshot.png)
 
 The demo streams shown in the screenshot use [Fake-RTSP-Stream](https://github.com/insight-platform/Fake-RTSP-Stream/) as an image source.
 
-## Prerequisites
+## Quick Start
 
-The recommended environment is the included Nix flake:
+Camstation is distributed through three packaging formats:
 
+| Format | Install Command |
+|--------|-----------------|
+| **Flatpak** (recommended) | `flatpak install flathub org.camstation.camstation` |
+| **Nix** | `nix run github:orthuber/camstation` or add `camstation` to your NixOS configuration |
+| **AppImage** | Download from [releases](https://github.com/orthuber/camstation/releases) and run directly |
+
+### First Run
+
+1. Launch Camstation
+2. Open **Cameras…** to add your RTSP camera URLs
+3. Open **Views…** to create a named view and assign cameras
+4. Use **Edit layout** to arrange the grid (drag to move, ↘ handle to resize)
+5. Press **F11** for kiosk mode, or start with `--kiosk`
+
+## User Guide
+
+### Configuration and Views
+
+- **Cameras…** — Add, edit, test, or remove RTSP cameras. A failed connection test does not prevent saving.
+- **Views…** — Create, rename, duplicate, or remove named views. Choose cameras, select the startup view, and configure kiosk-on-start.
+- The view selector in the main window changes the active view.
+
+Configuration is stored at `$XDG_CONFIG_HOME/camstation/config.json` (or `$HOME/.config/camstation/config.json`). Writes use atomic replacement and retain the preceding valid file as `config.json.bak`.
+
+Override config or startup view:
 ```sh
-nix develop
-cargo run
+camstation --config ./cameras.json --view Overview
 ```
 
-On a non-Nix development system, install:
+Views store logical grid dimensions and each tile's row, column, and spans. Newly assigned cameras are automatically placed into free cells.
 
-- Rust and Cargo
-- GTK 4 development files
-- GStreamer development files
-- GStreamer base, good, bad, ugly, libav, and Rust plugins; with GStreamer 1.28, modern VA decoders are provided by the bad plugin set
-- `pkg-config`
+### Layout Editing and Kiosk Mode
 
-Then run:
+- **Edit layout** — Arrange the active view while streams continue playing
+  - Drag anywhere on a camera image to move it
+  - Drag the **↘** handle to resize
+  - Use row/column controls to set the logical grid size
+  - **Fit grid** trims empty trailing rows/columns
+  - Invalid overlaps are rejected and snap back
+  - **Save layout** persists changes; **Cancel** restores the original
 
-```sh
-cargo run
-```
-
-## Configuration and views
-
-Use **Cameras…** to add, edit, test, or remove RTSP cameras. A failed connection test does not prevent saving an unavailable camera. Use **Views…** to create, rename, duplicate, or remove named views, choose their cameras, select the startup view, and configure kiosk-on-start. The view selector in the main window changes the active view.
-
-Configuration is stored at `$XDG_CONFIG_HOME/camstation/config.json`, or at `$HOME/.config/camstation/config.json` when `XDG_CONFIG_HOME` is unset. Writes use an atomic replacement, restrict newly created files to the current user on Unix, and retain the preceding valid file as `config.json.bak`. An invalid existing file is reported and is never silently replaced.
-
-Use another configuration file or override the startup view by UUID or case-insensitive name:
-
-```sh
-cargo run -- --config ./cameras.json --view Overview
-```
-
-Views store logical grid dimensions and each tile's row, column, and spans. Camstation renders that geometry, and the view manager automatically places newly assigned cameras into free cells.
-
-## Layout editing and kiosk mode
-
-Select **Edit layout** to arrange the active view while its streams continue playing. Drag anywhere on a camera image to move it, drag the **↘** handle to resize it, and use the row and column controls to set the logical grid size. Visible cell guides show where tiles will snap, and **Fit grid** trims empty trailing rows and columns. To add a camera, choose it and then click its desired empty cell. Tiles may have different sizes. Invalid overlaps are rejected and snap back to the previous valid position. Add and remove actions affect only the current view. **Save layout** is enabled after a change and persists the result; **Cancel** restores the original layout. Temporary `--rtsp-url` cameras are hidden while editing because they are not part of the saved view.
-
-Double-click video to expand that camera within the application. Double-click again or press **Escape** to restore the grid.
-
-Press **F11** to enter or leave kiosk mode. Kiosk mode enters fullscreen, hides management controls, and hides the pointer after three seconds of inactivity. `--kiosk` forces kiosk mode, while `--windowed` temporarily overrides a saved kiosk-on-start preference.
+- **Double-click** video to expand a camera; double-click again or press **Escape** to restore the grid
+- **F11** — Toggle kiosk mode (fullscreen, hides controls, hides pointer after 3s inactivity)
+- `--kiosk` forces kiosk mode; `--windowed` overrides saved kiosk-on-start
 
 See [Unattended startup](docs/unattended-startup.md) for XDG autostart and systemd user-service examples.
 
-Repeated `--rtsp-url` arguments remain available for temporary, non-persisted streams. They are placed in free cells in the selected view:
+### Temporary Streams
 
+Repeated `--rtsp-url` arguments add temporary, non-persisted streams:
 ```sh
-cargo run -- \
+camstation \
   --rtsp-url 'rtsp://camera-one.local/stream' \
   --rtsp-url 'rtsp://camera-two.local/stream'
 ```
 
-## Reliable multi-camera playback
+### Reliable Multi-Camera Playback
 
-Each tile owns an independent GStreamer pipeline. Failed streams retain their tile and reconnect after `1s`, `2s`, `5s`, `10s`, `15s`, then `30s`; the delay resets after 20 seconds of healthy frame delivery. A watchdog reconnects streams that produce no initial frame for 10 seconds or stop delivering frames for 5 seconds. Changing views or closing the application stops hidden pipelines and releases their timers, bus watches, and frame probes.
+- Each tile owns an independent GStreamer pipeline
+- Failed streams reconnect with exponential backoff (1s, 2s, 5s, 10s, 15s, 30s; resets after 20s healthy)
+- Watchdog reconnects streams with no initial frame for 10s or stalled for 5s
+- Changing views or closing stops hidden pipelines and releases resources
+- **Audio**: All cameras start muted. Enabling one mutes all others (exclusive selection). Mute intent survives reconnection
+- **Latency**: RTSP-over-TCP, zero jitter-buffer, disabled RTSP buffering, stale data dropping, unsynchronized presentation — favors lowest practical latency
 
-All cameras start muted. Enabling a tile's **Audio** toggle first mutes every other camera, so at most one stream is audible. Mute intent survives pipeline reconnection.
+Credentials in RTSP URLs are redacted from routine logs and pipeline error text.
 
-Pipelines use RTSP-over-TCP with jitter-buffer latency set to zero, RTSP buffering disabled, stale data dropping enabled, and unsynchronized frame presentation. This favors the lowest practical latency over jitter tolerance and smooth frame pacing. The URL is visible in the add-camera field, but credentials are redacted from routine application logs and pipeline error text.
-
-A working local development stream is available for repeatable playback tests:
-
-```sh
-cargo run -- --rtsp-url 'rtsp://127.0.0.1:8554/city-traffic' --log camstation=debug
-```
-
-At the time it was added, this H.264 stream reached `Playing` and selected `avdec_h264` on the AMD development workstation.
-
-Use `--kiosk` with startup URLs to hide camera-management controls and open fullscreen:
+### Logging
 
 ```sh
-cargo run -- --kiosk --rtsp-url 'rtsp://camera.local/stream'
+# Debug logging
+RUST_LOG=camstation=debug GST_DEBUG=2 camstation
+
+# Unattended deployments — daily rotation (7 files retained)
+camstation --kiosk --log-file /var/log/camstation
 ```
 
-## Common commands
+Without `--log-file`, logs write to stderr (suitable for systemd journal). RTSP credentials are never written unredacted.
 
-```sh
-make fmt
-make check
-make clippy
-make test
-make test-media
-make test-ui
-make coverage
-make validate-packages
-```
-
-See [`docs/testing.md`](docs/testing.md) for the test-suite split, coverage
-baseline, and graphical test requirements.
-
-## Distribution packages
-
-Build or run the native Nix package:
-
-```sh
-nix build path:.#camstation
-nix run path:.#camstation -- --help
-```
-
-Build a local Flatpak bundle after installing GNOME Platform and SDK 50 plus
-the Freedesktop 25.08 Rust extension:
-
-```sh
-make bundle-flatpak
-flatpak install --user --reinstall dist/Camstation-0.2.1.flatpak
-flatpak run org.camstation.camstation
-```
-
-The Flatpak has network, display, GPU, and audio access but no general host
-home-directory access. See [`flatpak/README.md`](flatpak/README.md) for details.
-
-An additional AppImage recipe is available for an Ubuntu 24.04 x86-64 build
-host:
-
-```sh
-make package-appimage
-```
-
-The AppImage is provided as a best-effort artifact. Software decoding is its compatibility
-baseline, and current NixOS requires `appimage-run`. See
-[`packaging/appimage/README.md`](packaging/appimage/README.md).
-
-The repeatable package checklist is in
-[`docs/package-validation.md`](docs/package-validation.md), and the latest
-completed/pending matrix is recorded in
-[`docs/package-validation-results.md`](docs/package-validation-results.md).
-
-To inspect relevant GStreamer plugins:
+### Inspecting GStreamer Plugins
 
 ```sh
 gst-inspect-1.0 gtk4paintablesink
@@ -155,37 +98,98 @@ gst-inspect-1.0 vah264dec
 gst-inspect-1.0 vah265dec
 ```
 
-GStreamer automatically selects among compatible installed decoders. Camstation recognizes GStreamer's `Hardware` decoder metadata and common VA-API, Intel QSV/MSDK, NVIDIA, V4L2, Vulkan, AMD AMF, and platform decoder factory names. Software fallback is expected when no compatible hardware decoder is registered or when the hardware does not support the stream's codec profile. The Nix shell includes Intel's media driver because Intel is the initial deployment target; other vendors require their corresponding system driver and GStreamer plugin.
+GStreamer auto-selects among compatible decoders. Camstation recognizes `Hardware` decoder metadata and common VA-API, Intel QSV/MSDK, NVIDIA, V4L2, Vulkan, AMD AMF, and platform decoder factory names. Software fallback activates when no compatible hardware decoder is registered or the profile is unsupported.
 
-## Logging
+## Development Setup
 
-Camstation uses `tracing`. Set `RUST_LOG` for application logs and `GST_DEBUG` for GStreamer diagnostics:
+### Prerequisites
 
+**Recommended (Nix flake):**
 ```sh
-RUST_LOG=camstation=debug GST_DEBUG=2 cargo run
+nix develop
+cargo run
 ```
 
-For unattended kiosk deployments, use `--log-file` to write structured logs to a directory with daily rotation (7 files retained). This prevents unbounded log growth:
-
+**Non-Nix systems:** Install Rust, GTK 4 dev files, GStreamer dev files (core, base, good, bad, ugly, libav, gtk4 plugins), and `pkg-config`. Then:
 ```sh
-camstation --kiosk --log-file /var/log/camstation
+cargo run
 ```
 
-If `--log-file` is omitted, logs are written to stderr, which is suitable for systemd journal integration. RTSP URLs may contain credentials and must not be written unredacted to routine logs.
+### Common Commands
 
-## Optional direnv integration
+```sh
+# Code quality
+make fmt         # Format code
+make fmt-check   # Check formatting
+make check       # cargo check
+make clippy      # Lint with deny-warnings
+
+# Testing
+make test        # All unit/integration tests
+make test-media  # Media component tests (serial)
+make test-ui     # UI integration tests (requires xvfb)
+make coverage    # Coverage report
+make coverage-html  # HTML coverage report (opens in browser)
+
+# Packaging
+make package-nix       # Build Nix package
+make package-flatpak   # Build Flatpak
+make bundle-flatpak    # Build Flatpak bundle (.flatpak file)
+make package-appimage  # Build AppImage (Ubuntu 24.04 x86_64 host)
+make package-all       # Build all three packages
+make validate-packages # Run validation checklist
+```
+
+See [`docs/testing.md`](docs/testing.md) for the test-suite split, coverage baseline, and graphical test requirements.
+
+### Optional direnv Integration
 
 If `direnv` and `nix-direnv` are installed:
-
 ```sh
 cp .envrc.example .envrc
 direnv allow
 ```
+`.envrc` is not generated automatically — enabling it is a per-user decision.
 
-`.envrc` is intentionally not generated automatically because enabling it is a per-user decision.
+## Packaging & Distribution
+
+Build commands for maintainers and CI:
+
+```sh
+# Nix
+nix build path:.#camstation
+nix run path:.#camstation -- --help
+
+# Flatpak (requires GNOME Platform/SDK 50 + Freedesktop 25.08 Rust extension)
+make bundle-flatpak
+flatpak install --user --reinstall dist/Camstation-$(VERSION).flatpak
+flatpak run org.camstation.camstation
+```
+The Flatpak has network, display, GPU, and audio access but no general host home-directory access. See [`flatpak/README.md`](flatpak/README.md) for details.
+
+```sh
+# AppImage (Ubuntu 24.04 x86_64 build host)
+make package-appimage
+```
+See [`packaging/appimage/README.md`](packaging/appimage/README.md).
+
+Validation checklists:
+- [`docs/package-validation.md`](docs/package-validation.md) — Repeatable package checklist
+- [`docs/package-validation-results.md`](docs/package-validation-results.md) — Latest completed/pending matrix
+
+## Architecture Overview
+
+| Concern | Decision |
+|---------|----------|
+| Language | Rust, edition 2024 |
+| GUI | GTK 4 via gtk-rs |
+| Media | GStreamer 1.x via gstreamer-rs |
+| Video presentation | `gtk4paintablesink` |
+| Hardware decoding | Available GStreamer hardware decoders, selected through decoder autoplugging |
+| Configuration | Versioned JSON via Serde |
+| Logging | `tracing` with environment-filter support |
+| CLI | `clap` |
 
 ## License
 
-Camstation is licensed under the [MIT License](LICENSE). Packaged third-party
-components retain their own licenses; see
-[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+Camstation is licensed under the [MIT License](LICENSE). Packaged third-party components retain their own licenses; see [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
