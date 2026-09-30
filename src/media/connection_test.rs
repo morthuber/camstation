@@ -44,7 +44,7 @@ pub(crate) struct ConnectionTest {
 }
 
 impl ConnectionTest {
-    pub(crate) fn start<F>(uri: &str, callback: F) -> Result<Self>
+    pub(crate) fn start<F>(uri: &str, strip_fragment: bool, callback: F) -> Result<Self>
     where
         F: FnOnce(std::result::Result<(), String>) + 'static,
     {
@@ -60,9 +60,14 @@ impl ConnectionTest {
             .property("sync", false)
             .build()
             .context("GStreamer plugin 'fakesink' is unavailable")?;
+        let normalized_uri = if strip_fragment {
+            normalize_rtsp_uri(uri).to_owned()
+        } else {
+            uri.to_owned()
+        };
         let pipeline = gst::ElementFactory::make("playbin3")
             .name("camstation_connection_test")
-            .property("uri", normalize_rtsp_uri(uri))
+            .property("uri", normalized_uri)
             .property("video-sink", &video_sink)
             .property("audio-sink", &audio_sink)
             .property("mute", true)
@@ -91,7 +96,14 @@ impl ConnectionTest {
                 move |_, message| {
                     match message.view() {
                         gst::MessageView::Error(error) => {
-                            let error = redact_sensitive_text(&error.error().to_string());
+                            let gst_error = error.error();
+                            let debug_str = error.debug().unwrap_or_default();
+                            tracing::error!(
+                                gst_error = %gst_error,
+                                gst_debug = %debug_str,
+                                "connection test GStreamer error"
+                            );
+                            let error = redact_sensitive_text(&gst_error.to_string());
                             queue_completion(&weak_inner, Err(error));
                         }
                         gst::MessageView::StateChanged(state)

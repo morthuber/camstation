@@ -48,6 +48,9 @@ struct AppState {
     store: ConfigStore,
     current_view: Uuid,
     session_urls: Vec<String>,
+    #[allow(dead_code)]
+    background_dropdown: gtk4::DropDown,
+    background_css_provider: gtk4::CssProvider,
 }
 
 struct CameraTile {
@@ -59,6 +62,7 @@ struct CameraTile {
     picture: gtk4::Picture,
     placement: RefCell<ViewTile>,
     edit_actions: gtk4::Box,
+    actions: gtk4::Box,
 }
 
 struct EditSession {
@@ -154,12 +158,21 @@ fn build_loaded_main_window(
     edit_button.set_widget_name("edit-layout-button");
     edit_button.update_property(&[gtk4::accessible::Property::Label("Edit layout")]);
 
+    let background_dropdown = gtk4::DropDown::from_strings(&["System", "White", "Black"]);
+    background_dropdown.set_tooltip_text(Some("Background color"));
+    background_dropdown.set_selected(match config.background_mode {
+        crate::config::BackgroundMode::System => 0,
+        crate::config::BackgroundMode::White => 1,
+        crate::config::BackgroundMode::Black => 2,
+    });
+
     let controls = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
     controls.set_hexpand(true);
     controls.append(&view_dropdown);
     controls.append(&cameras_button);
     controls.append(&views_button);
     controls.append(&edit_button);
+    controls.append(&background_dropdown);
 
     let cancel_edit = gtk4::Button::with_label("Cancel");
     let save_edit = gtk4::Button::with_label("Save layout");
@@ -258,6 +271,14 @@ fn build_loaded_main_window(
         gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
     );
 
+    let background_css_provider = gtk4::CssProvider::new();
+    gtk4::style_context_add_provider_for_display(
+        &gtk4::prelude::WidgetExt::display(&window),
+        &background_css_provider,
+        gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+    );
+    apply_background_css(&background_css_provider, config.background_mode);
+
     let state = Rc::new(RefCell::new(AppState {
         grid: grid.clone(),
         window: window.downgrade(),
@@ -289,6 +310,8 @@ fn build_loaded_main_window(
         store,
         current_view,
         session_urls: options.rtsp_url.clone(),
+        background_dropdown: background_dropdown.clone(),
+        background_css_provider: background_css_provider.clone(),
     }));
 
     view_dropdown.connect_selected_notify({
@@ -309,6 +332,32 @@ fn build_loaded_main_window(
                 state.borrow_mut().current_view = view_id;
                 apply_current_view(&state);
             }
+        }
+    });
+
+    background_dropdown.connect_selected_notify({
+        let state = state.clone();
+        move |dropdown| {
+            let selected = dropdown.selected();
+            let mode = match selected {
+                0 => crate::config::BackgroundMode::System,
+                1 => crate::config::BackgroundMode::White,
+                2 => crate::config::BackgroundMode::Black,
+                _ => return,
+            };
+            {
+                let mut state = state.borrow_mut();
+                if state.config.background_mode == mode {
+                    return;
+                }
+                state.config.background_mode = mode;
+            }
+            let (css_provider, config) = {
+                let state = state.borrow();
+                (state.background_css_provider.clone(), state.config.clone())
+            };
+            apply_background_css(&css_provider, mode);
+            save_config_async(&state, config);
         }
     });
 
@@ -495,6 +544,19 @@ fn show_startup_error(application: &gtk4::Application, title: &str, message: &st
     window.present();
 }
 
+fn apply_background_css(css_provider: &gtk4::CssProvider, mode: crate::config::BackgroundMode) {
+    let css = match mode {
+        crate::config::BackgroundMode::System => "".to_string(),
+        crate::config::BackgroundMode::White => {
+            "scrolledwindow { background-color: white; }".to_string()
+        }
+        crate::config::BackgroundMode::Black => {
+            "scrolledwindow { background-color: black; }".to_string()
+        }
+    };
+    css_provider.load_from_string(&css);
+}
+
 fn refresh_view_dropdown(state: &Rc<RefCell<AppState>>) {
     let (dropdown, guard, names, ids, current_view) = {
         let state = state.borrow();
@@ -586,7 +648,14 @@ fn apply_current_view(state: &Rc<RefCell<AppState>>) {
             .as_deref()
             .unwrap_or(&camera.rtsp_url)
             .to_owned();
-        add_runtime_camera(state, Some(camera.id), &camera.name, &uri, &tile);
+        add_runtime_camera(
+            state,
+            Some(camera.id),
+            &camera.name,
+            &uri,
+            camera.strip_fragment,
+            &tile,
+        );
     }
     for (index, (uri, column, row)) in session_tiles.into_iter().enumerate() {
         let tile = ViewTile {
@@ -601,6 +670,7 @@ fn apply_current_view(state: &Rc<RefCell<AppState>>) {
             None,
             &format!("Command-line camera {}", index + 1),
             &uri,
+            true,
             &tile,
         );
     }
@@ -617,6 +687,7 @@ fn add_runtime_camera(
     persistent_camera_id: Option<Uuid>,
     name: &str,
     uri: &str,
+    strip_fragment: bool,
     placement: &ViewTile,
 ) -> bool {
     if state.borrow().tiles.len() >= MAX_CAMERAS {
@@ -682,36 +753,55 @@ fn add_runtime_camera(
     actions.append(&name_label);
     actions.append(&audio_button);
     actions.append(&edit_actions);
+    actions.set_visible(false);
     video_overlay.add_overlay(&actions);
 
     let root = gtk4::Frame::builder().child(&video_overlay).build();
     root.set_hexpand(true);
     root.set_vexpand(true);
 
+    // Add hover controller to show/hide camera controls
+    let actions_for_hover = actions.clone();
+    let motion = gtk4::EventControllerMotion::new();
+    motion.connect_enter({
+        let actions = actions_for_hover.clone();
+        move |_, _, _| {
+            actions.set_visible(true);
+        }
+    });
+    motion.connect_leave({
+        let actions = actions_for_hover.clone();
+        move |_| {
+            actions.set_visible(false);
+        }
+    });
+    root.add_controller(motion);
+
     let status_for_events = status_label.clone();
     let picture_for_events = picture.clone();
     let audio_for_events = audio_button.clone();
-    let controller = match CameraController::new(camera_id, uri, move |event| match event {
-        PlaybackEvent::StateChanged(state) => {
-            update_status_label(&status_for_events, state);
-        }
-        PlaybackEvent::PaintableChanged(paintable) => {
-            picture_for_events.set_paintable(Some(&paintable));
-        }
-        PlaybackEvent::AudioDisabled(error) => {
-            audio_for_events.set_active(false);
-            show_status_label(&status_for_events, &error);
-        }
-        PlaybackEvent::Error(error) => {
-            show_status_label(&status_for_events, &format!("Stream error: {error}"));
-        }
-    }) {
-        Ok(controller) => controller,
-        Err(error) => {
-            show_error(state, &format!("Cannot start '{name}': {error:#}"));
-            return false;
-        }
-    };
+    let controller =
+        match CameraController::new(camera_id, uri, strip_fragment, move |event| match event {
+            PlaybackEvent::StateChanged(state) => {
+                update_status_label(&status_for_events, state);
+            }
+            PlaybackEvent::PaintableChanged(paintable) => {
+                picture_for_events.set_paintable(Some(&paintable));
+            }
+            PlaybackEvent::AudioDisabled(error) => {
+                audio_for_events.set_active(false);
+                show_status_label(&status_for_events, &error);
+            }
+            PlaybackEvent::Error(error) => {
+                show_status_label(&status_for_events, &format!("Stream error: {error}"));
+            }
+        }) {
+            Ok(controller) => controller,
+            Err(error) => {
+                show_error(state, &format!("Cannot start '{name}': {error:#}"));
+                return false;
+            }
+        };
 
     let tile = Rc::new(CameraTile {
         id: camera_id,
@@ -722,6 +812,7 @@ fn add_runtime_camera(
         picture: picture.clone(),
         placement: RefCell::new(placement.clone()),
         edit_actions,
+        actions,
     });
     tile.audio_button.connect_toggled({
         let weak_state = Rc::downgrade(state);
@@ -1305,6 +1396,7 @@ fn render_editing_grid(state: &Rc<RefCell<AppState>>) {
         {
             *tile.placement.borrow_mut() = placement.clone();
             tile.edit_actions.set_visible(true);
+            tile.actions.set_visible(true);
             tile.picture.set_cursor_from_name(Some("grab"));
             state.borrow().grid.attach(
                 &tile.root,
@@ -1328,9 +1420,17 @@ fn render_editing_grid(state: &Rc<RefCell<AppState>>) {
                 .as_deref()
                 .unwrap_or(&camera.rtsp_url)
                 .to_owned();
-            add_runtime_camera(state, Some(camera.id), &camera.name, &uri, placement);
+            add_runtime_camera(
+                state,
+                Some(camera.id),
+                &camera.name,
+                &uri,
+                camera.strip_fragment,
+                placement,
+            );
             if let Some(tile) = state.borrow().tiles.last() {
                 tile.edit_actions.set_visible(true);
+                tile.actions.set_visible(true);
                 tile.picture.set_cursor_from_name(Some("grab"));
             }
         }
@@ -1777,6 +1877,12 @@ where
     });
 }
 
+fn save_config_async(state: &Rc<RefCell<AppState>>, config: AppConfig) {
+    commit_config(state, config, |_result| {
+        // Background config saved; ignore result for now
+    });
+}
+
 fn show_camera_manager(parent: &gtk4::Window, state: &Rc<RefCell<AppState>>) {
     let list = gtk4::ListBox::new();
     list.set_selection_mode(gtk4::SelectionMode::None);
@@ -1907,6 +2013,11 @@ fn show_camera_editor(
                 .unwrap_or(""),
         )
         .build();
+    let strip_fragment = gtk4::CheckButton::with_label("Strip URI fragment (e.g. #media=video)");
+    strip_fragment.set_active(existing.as_ref().is_none_or(|camera| camera.strip_fragment));
+    strip_fragment.set_tooltip_text(Some(
+        "Some cameras require the fragment for stream selection. Disable if your camera URL contains #media=video or similar and the connection fails.",
+    ));
     let status = manager_status_label();
     let test = gtk4::Button::with_label("Test connection");
     let save = gtk4::Button::with_label("Save");
@@ -1926,13 +2037,14 @@ fn show_camera_editor(
     form.attach(&url, 1, 1, 1, 1);
     form.attach(&gtk4::Label::new(Some("Substream")), 0, 2, 1, 1);
     form.attach(&substream, 1, 2, 1, 1);
-    form.attach(&test, 1, 3, 1, 1);
-    form.attach(&status, 0, 4, 2, 1);
+    form.attach(&strip_fragment, 0, 3, 2, 1);
+    form.attach(&test, 1, 4, 1, 1);
+    form.attach(&status, 0, 5, 2, 1);
     let actions = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     actions.set_halign(gtk4::Align::End);
     actions.append(&cancel);
     actions.append(&save);
-    form.attach(&actions, 0, 5, 2, 1);
+    form.attach(&actions, 0, 6, 2, 1);
 
     let window = gtk4::Window::builder()
         .title(if existing.is_some() {
@@ -1951,6 +2063,7 @@ fn show_camera_editor(
         let url = url.clone();
         let status = status.clone();
         let test = test.clone();
+        let strip_fragment = strip_fragment.clone();
         let active_test = active_test.clone();
         move |_| {
             active_test.borrow_mut().take();
@@ -1959,7 +2072,8 @@ fn show_camera_editor(
             let callback_slot = active_test.clone();
             let callback_status = status.clone();
             let callback_button = test.clone();
-            match ConnectionTest::start(url.text().as_str(), move |result| {
+            let strip_fragment_active = strip_fragment.is_active();
+            match ConnectionTest::start(url.text().as_str(), strip_fragment_active, move |result| {
                 callback_slot.borrow_mut().take();
                 callback_button.set_sensitive(true);
                 match result {
@@ -1984,6 +2098,7 @@ fn show_camera_editor(
         let status = status.clone();
         let window = window.clone();
         let parent = parent.clone();
+        let strip_fragment = strip_fragment.clone();
         let manager_list = manager_list.clone();
         let manager_status = manager_status.clone();
         let camera_id = existing
@@ -1996,6 +2111,7 @@ fn show_camera_editor(
                 rtsp_url: url.text().trim().to_owned(),
                 substream_url: (!substream.text().trim().is_empty())
                     .then(|| substream.text().trim().to_owned()),
+                strip_fragment: strip_fragment.is_active(),
             };
             let mut candidate = state.borrow().config.clone();
             if let Some(index) = candidate
@@ -2764,6 +2880,7 @@ mod tests {
             name: "Placement camera".to_owned(),
             rtsp_url: "rtsp://127.0.0.1:1/unavailable".to_owned(),
             substream_url: None,
+            strip_fragment: true,
         });
         let (_application, window, _directory, state) = build_test_window_with_config(
             "org.camstation.camstation.UiPlacementTest",

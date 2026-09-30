@@ -11,6 +11,15 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum BackgroundMode {
+    #[default]
+    System,
+    White,
+    Black,
+}
+
 pub(crate) const SCHEMA_VERSION: u32 = 1;
 const MAX_CAMERAS_PER_VIEW: usize = 10;
 pub(crate) const MAX_GRID_EXTENT: u32 = 32;
@@ -22,6 +31,8 @@ pub(crate) struct AppConfig {
     pub(crate) views: Vec<ViewConfig>,
     pub(crate) startup_view: Option<Uuid>,
     pub(crate) kiosk_on_start: bool,
+    #[serde(default)]
+    pub(crate) background_mode: BackgroundMode,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -30,6 +41,12 @@ pub(crate) struct CameraConfig {
     pub(crate) name: String,
     pub(crate) rtsp_url: String,
     pub(crate) substream_url: Option<String>,
+    #[serde(default = "default_strip_fragment")]
+    pub(crate) strip_fragment: bool,
+}
+
+fn default_strip_fragment() -> bool {
+    true
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -71,6 +88,7 @@ impl Default for AppConfig {
             }],
             startup_view: Some(overview_id),
             kiosk_on_start: false,
+            background_mode: BackgroundMode::default(),
         }
     }
 }
@@ -462,6 +480,7 @@ mod tests {
             name: name.to_owned(),
             rtsp_url: "rtsp://camera.example/live".to_owned(),
             substream_url: Some("rtsps://camera.example/low".to_owned()),
+            strip_fragment: true,
         }
     }
 
@@ -546,6 +565,7 @@ mod tests {
             name: "Bad URL".to_owned(),
             rtsp_url: "https://camera.example/live".to_owned(),
             substream_url: None,
+            strip_fragment: true,
         });
         assert!(config.validate().unwrap_err().to_string().contains("RTSP"));
 

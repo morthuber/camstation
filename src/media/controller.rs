@@ -100,7 +100,7 @@ pub(crate) struct CameraController {
 }
 
 impl CameraController {
-    pub(crate) fn new<F>(camera_key: u64, uri: &str, emit: F) -> Result<Self>
+    pub(crate) fn new<F>(camera_key: u64, uri: &str, strip_fragment: bool, emit: F) -> Result<Self>
     where
         F: FnMut(PlaybackEvent) + 'static,
     {
@@ -108,10 +108,16 @@ impl CameraController {
         require_element_factory("gtk4paintablesink")?;
         require_element_factory("playbin3")?;
 
+        let normalized_uri = if strip_fragment {
+            normalize_rtsp_uri(uri).to_owned()
+        } else {
+            uri.to_owned()
+        };
+
         Ok(Self {
             inner: Rc::new(RefCell::new(ControllerInner {
                 camera_key,
-                uri: normalize_rtsp_uri(uri).to_owned(),
+                uri: normalized_uri,
                 desired_playing: false,
                 muted: true,
                 generation: 0,
@@ -383,19 +389,37 @@ fn build_pipeline(
 
             match message.view() {
                 gst::MessageView::Error(error) => {
-                    let error = redact_sensitive_text(&error.error().to_string());
+                    let gst_error = error.error();
+                    let debug_str = error.debug().unwrap_or_default();
+                    let error = redact_sensitive_text(&gst_error.to_string());
                     if !muted && message_is_from_or_below(message, &audio_sink) {
-                        tracing::warn!(camera = camera_key, generation, error = %error, "camera audio failed; falling back to muted playback");
+                        tracing::warn!(
+                            camera = camera_key,
+                            generation,
+                            error = %error,
+                            debug = %debug_str,
+                            "camera audio failed; falling back to muted playback"
+                        );
                         queue_audio_fallback(&watched_context, generation, &error);
                     } else {
-                        tracing::warn!(camera = camera_key, generation, error = %error, "camera pipeline failed");
+                        tracing::warn!(
+                            camera = camera_key,
+                            generation,
+                            error = %error,
+                            debug = %debug_str,
+                            "camera pipeline failed"
+                        );
                         emit_event(&watched_context, PlaybackEvent::Error(error.clone()));
                         queue_recovery(&watched_context, generation, &error);
                     }
                 }
                 gst::MessageView::Eos(_) => {
                     let error = "camera stream reached end of stream".to_owned();
-                    tracing::warn!(camera = camera_key, generation, "camera pipeline reached end of stream");
+                    tracing::warn!(
+                        camera = camera_key,
+                        generation,
+                        "camera pipeline reached end of stream"
+                    );
                     emit_event(&watched_context, PlaybackEvent::Error(error.clone()));
                     queue_recovery(&watched_context, generation, &error);
                 }
