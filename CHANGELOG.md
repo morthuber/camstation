@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0 — 2026-09-30
+
+- Added About dialog accessible from header bar showing version, MIT license, GitHub link, and description.
+- AppImage build now works on any Linux distribution (tested on Ubuntu 24.04 and Arch Linux). Removed Ubuntu 24.04 OS check; third-party license collection uses distro-agnostic paths.
+
 ## 0.3.0 — 2026-09-30
 
 - Camera tile status bar (name and audio toggle) now only appears on hover, reducing visual clutter in multi-camera views.
