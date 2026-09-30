@@ -1,4 +1,4 @@
-.PHONY: check clippy fmt fmt-check run test test-media test-ui test-all coverage coverage-html flatpak-sources package-nix package-flatpak bundle-flatpak package-appimage validate-packages validate-flatpak
+.PHONY: check clippy fmt fmt-check run test test-media test-ui test-all coverage coverage-html flatpak-sources package-nix package-flatpak bundle-flatpak package-appimage package-all validate-packages validate-flatpak
 
 VERSION := $(shell sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)
 
@@ -58,3 +58,5 @@ validate-packages:
 
 validate-flatpak:
 	./packaging/validate-flatpak.sh
+
+package-all: package-nix package-flatpak package-appimage
