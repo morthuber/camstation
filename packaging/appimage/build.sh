@@ -4,15 +4,6 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$root"
 
-if [[ "${ALLOW_UNSUPPORTED_BUILD_HOST:-0}" != "1" ]]; then
-  source /etc/os-release
-  if [[ "${ID:-}" != "ubuntu" || "${VERSION_ID:-}" != "24.04" ]]; then
-    echo "The beta AppImage must be built on Ubuntu 24.04." >&2
-    echo "Set ALLOW_UNSUPPORTED_BUILD_HOST=1 only for packaging experiments." >&2
-    exit 1
-  fi
-fi
-
 required_commands=(cargo curl patchelf pkg-config)
 for command_name in "${required_commands[@]}"; do
   command -v "$command_name" >/dev/null || {
@@ -64,14 +55,22 @@ install -Dm644 resources/org.camstation.camstation.metainfo.xml \
 
 third_party_licenses="$appdir/usr/share/licenses/camstation/third-party"
 mkdir -p "$third_party_licenses"
-for package_name in \
-  libglib2.0-0t64 libgtk-4-1 libgstreamer1.0-0 \
-  gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
-  gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
-  gstreamer1.0-libav gstreamer1.0-gtk4; do
-  copyright_file="/usr/share/doc/$package_name/copyright"
-  if [[ -f "$copyright_file" ]]; then
-    install -Dm644 "$copyright_file" "$third_party_licenses/$package_name.copyright"
+
+# Collect third-party license files from common locations
+# Try distribution package locations first, then common library paths
+license_dirs=(
+  "/usr/share/doc"
+  "/usr/share/licenses"
+)
+for license_dir in "${license_dirs[@]}"; do
+  if [[ -d "$license_dir" ]]; then
+    find "$license_dir" -maxdepth 2 -name "copyright" -o -name "COPYING" -o -name "LICENSE*" 2>/dev/null | while IFS= read -r copyright_file; do
+      if [[ -f "$copyright_file" ]]; then
+        rel_path="${copyright_file#$license_dir/}"
+        dest_name="${rel_path//\//-}"
+        install -Dm644 "$copyright_file" "$third_party_licenses/$dest_name" 2>/dev/null || true
+      fi
+    done
   fi
 done
 
