@@ -1,0 +1,61 @@
+# Reproducible AppImage build environment.
+#
+# The GStreamer plugin 'gtk4paintablesink' (libgstgtk4.so) is a hard runtime
+# requirement: src/media/controller.rs refuses to start a pipeline without it.
+# The build host must therefore provide that plugin so linuxdeploy bundles it.
+#
+# It is only packaged by newer distributions, which conflicts with wanting an
+# old glibc for a broadly compatible artifact. Debian 13 is the oldest base
+# that ships the plugin off the shelf, so it is the default here.
+#
+# The base provides glibc 2.41, but the resulting artifact only requires
+# glibc 2.39, which is the highest GLIBC_x.y symbol its bundled libraries
+# actually reference. Targets therefore need glibc 2.39 or newer. Check with:
+#   getconf GNU_LIBC_VERSION
+#
+# Only substitute a base that also ships gtk4paintablesink; the guard below
+# rejects anything else. See packaging/appimage/README.md for the per-distro
+# availability table.
+
+ARG BASE_IMAGE=rust:1.98.1-trixie
+FROM ${BASE_IMAGE}
+
+# gtk4paintablesink ships in gstreamer1.0-gtk4. The rest matches the host
+# requirements documented in packaging/appimage/README.md.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        libgtk-4-dev \
+        libgstreamer1.0-dev \
+        libgstreamer-plugins-bad1.0-dev \
+        libgstreamer-plugins-base1.0-dev \
+        gstreamer1.0-gtk4 \
+        gstreamer1.0-libav \
+        gstreamer1.0-plugins-bad \
+        gstreamer1.0-plugins-base \
+        gstreamer1.0-plugins-good \
+        gstreamer1.0-plugins-ugly \
+        gstreamer1.0-tools \
+        patchelf \
+        pkgconf \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+COPY . /src
+
+# Fail fast and loudly: without this element the AppImage would install cleanly
+# and then break at runtime with "GStreamer plugin 'gtk4paintablesink' is
+# unavailable". It is a runtime dependency, so compilation alone would not
+# reveal the problem.
+RUN gst-inspect-1.0 gtk4paintablesink > /dev/null \
+    || { echo "error: gst-inspect-1.0 could not find gtk4paintablesink in the base image; the AppImage would install but fail at runtime" >&2; exit 1; }
+
+# No FUSE is available in the build container, so build.sh falls back to the
+# AppImage runtime's extract-and-run mode.
+RUN ./packaging/appimage/build.sh
+
+# Collect just the artifacts so they can be copied out without dragging along
+# the multi-hundred-megabyte AppDir and tool cache.
+RUN mkdir -p /out \
+    && cp /src/dist/*.AppImage /src/dist/*.AppImage.sha256 /out/

@@ -2,9 +2,12 @@
 
 ## Unreleased
 
+- Fixed a stale `Cargo.lock` that made `cargo build --locked` fail, which had broken `make package-appimage` and the Flatpak module on a clean checkout.
+- AppImage checksums now record a bare filename instead of the absolute build-host path, so `sha256sum -c` works on a downloaded artifact.
+- Added `make package-appimage-container`, a containerized AppImage build pinned to a base that provides `gtk4paintablesink`, so the artifact no longer depends on the host toolchain. Uses podman when available, otherwise docker. The result requires glibc 2.39 or newer.
+- Documented that `gtk4paintablesink` is a hard build-host requirement which Debian 12 and Ubuntu 24.04 cannot supply, with a per-distro availability table and the corrected glibc baseline.
 - AppImage build no longer requires FUSE; it falls back to the AppImage runtime's extract-and-run mode on hosts without a usable `/dev/fuse` (NixOS, containers, hardened kernels).
 - Nix dev shell now provides `gst-plugins-ugly`, so `nix develop && make package-appimage` produces a complete bundle.
-- Documented the AppImage glibc baseline policy: build on the oldest distribution the artifact must run on, since a bundled glibc excludes older targets. Added a per-distro glibc table and dependency snippets for Debian/Ubuntu, Fedora, openSUSE, and Arch.
 - Dropped the stale Ubuntu 24.04 build-host requirement from the AppImage and packaging documentation, and removed a reference to the deleted `package-all` target.
 
 ## 0.4.0 — 2026-09-30

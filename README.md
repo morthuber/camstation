@@ -135,7 +135,7 @@ make coverage-html  # HTML coverage report (opens in browser)
 make package-nix       # Build Nix package
 make package-flatpak   # Build Flatpak
 make bundle-flatpak    # Build Flatpak bundle (.flatpak file)
-make package-appimage  # Build AppImage (oldest-supported glibc host)
+make package-appimage  # Build AppImage (host needs gtk4paintablesink)
 make validate-packages # Run validation checklist
 ```
 
@@ -167,10 +167,12 @@ flatpak run org.camstation.camstation
 The Flatpak has network, display, GPU, and audio access but no general host home-directory access. See [`flatpak/README.md`](flatpak/README.md) for details.
 
 ```sh
-# AppImage (build on the oldest glibc host you need to support)
+# AppImage (build host must provide gtk4paintablesink; see below)
 make package-appimage
+make package-appimage-container   # reproducible, containerized build
 ```
-See [`packaging/appimage/README.md`](packaging/appimage/README.md).
+See [`packaging/appimage/README.md`](packaging/appimage/README.md) for the
+build-host requirements and the glibc baseline of the resulting artifact.
 
 Validation checklists:
 - [`docs/package-validation.md`](docs/package-validation.md) — Repeatable package checklist

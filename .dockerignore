@@ -1,0 +1,12 @@
+# Keep the build context small and reproducible. These are all build outputs or
+# host-specific state that must never leak into the image or affect the build.
+
+/target/
+/dist/
+/build-dir/
+/.flatpak-builder/
+/result
+/result-*
+/.direnv/
+/.envrc
+*.log

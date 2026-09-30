@@ -1,4 +1,4 @@
-.PHONY: check clippy fmt fmt-check run test test-media test-ui test-all coverage coverage-html flatpak-sources package-nix package-flatpak bundle-flatpak package-appimage validate-packages validate-flatpak
+.PHONY: check clippy fmt fmt-check run test test-media test-ui test-all coverage coverage-html flatpak-sources package-nix package-flatpak bundle-flatpak package-appimage package-appimage-container validate-packages validate-flatpak
 
 VERSION := $(shell sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)
 
@@ -52,6 +52,26 @@ bundle-flatpak: package-flatpak
 
 package-appimage:
 	./packaging/appimage/build.sh
+
+# Containerized AppImage build. Use this when the host toolchain is missing
+# gtk4paintablesink or when a reproducible glibc floor is needed.
+# See packaging/appimage/README.md for the baseline rationale.
+CONTAINER_ENGINE ?= $(shell command -v podman >/dev/null 2>&1 && echo podman || echo docker)
+APPIMAGE_BASE_IMAGE ?= rust:1.98.1-trixie
+APPIMAGE_BUILDER_IMAGE ?= camstation-appimage-builder
+
+package-appimage-container:
+	$(CONTAINER_ENGINE) build \
+		--file packaging/appimage/Containerfile \
+		--build-arg BASE_IMAGE=$(APPIMAGE_BASE_IMAGE) \
+		--tag $(APPIMAGE_BUILDER_IMAGE) \
+		.
+	@rm -rf dist/appimage-container
+	@mkdir -p dist/appimage-container
+	@cid=$$($(CONTAINER_ENGINE) create $(APPIMAGE_BUILDER_IMAGE)); \
+		trap '$(CONTAINER_ENGINE) rm -f $$cid >/dev/null' EXIT; \
+		$(CONTAINER_ENGINE) cp $$cid:/out/. dist/appimage-container/
+	@echo "AppImage artifacts in dist/appimage-container/"
 
 validate-packages:
 	./packaging/validate.sh
