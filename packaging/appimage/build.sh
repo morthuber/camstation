@@ -104,7 +104,12 @@ find "$appdir/usr/lib" -maxdepth 1 \( -type f -o -type l \) \
 rm -f "$output"
 export OUTPUT="$output"
 run_linuxdeploy --appdir "$appdir" --output appimage
-sha256sum "$output" > "$output.sha256"
+# Record the bare filename so the checksum stays valid once the artifact is
+# moved or downloaded, which an absolute build-host path would not.
+(
+  cd "$root/dist"
+  sha256sum "$(basename "$output")" > "$(basename "$output").sha256"
+)
 
 echo "Created artifact: $output"
 echo "Built against glibc $(getconf GNU_LIBC_VERSION 2>/dev/null || echo unknown);"
