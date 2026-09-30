@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.3 — 2026-09-30
 
 - README now documents the full Flatpak and AppImage build procedures: SDK and Rust-extension setup, regenerating `cargo-sources.json`, bundling and installing, validation, and both AppImage build paths with their differing requirements.
 - Corrected README Quick Start: Camstation is not on Flathub, and the Nix reference pointed at the wrong repository owner.

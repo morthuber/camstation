@@ -26,6 +26,11 @@
   </provides>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.4.3" date="2026-09-30">
+      <description>
+        <p>Documented Flatpak and AppImage build procedures, added a containerized AppImage build pinned to a base providing gtk4paintablesink, made the AppImage build work without FUSE, and fixed a stale Cargo.lock that broke locked builds.</p>
+      </description>
+    </release>
     <release version="0.2.1" date="2026-09-29">
       <description>
         <p>Improved RTSP camera compatibility by removing client-side URL fragments before connecting.</p>
