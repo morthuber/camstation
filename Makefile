@@ -48,7 +48,7 @@ bundle-flatpak: package-flatpak
 	flatpak build-export --no-update-summary dist/flatpak-repo build-dir
 	flatpak build-update-repo dist/flatpak-repo
 	flatpak build-bundle dist/flatpak-repo dist/Camstation-$(VERSION).flatpak org.camstation.camstation
-	sha256sum dist/Camstation-$(VERSION).flatpak > dist/Camstation-$(VERSION).flatpak.sha256
+	cd dist && sha256sum Camstation-$(VERSION).flatpak > Camstation-$(VERSION).flatpak.sha256
 
 package-appimage:
 	./packaging/appimage/build.sh
