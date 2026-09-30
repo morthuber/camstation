@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- AppImage build no longer requires FUSE; it falls back to the AppImage runtime's extract-and-run mode on hosts without a usable `/dev/fuse` (NixOS, containers, hardened kernels).
+- Nix dev shell now provides `gst-plugins-ugly`, so `nix develop && make package-appimage` produces a complete bundle.
+- Documented the AppImage glibc baseline policy: build on the oldest distribution the artifact must run on, since a bundled glibc excludes older targets. Added a per-distro glibc table and dependency snippets for Debian/Ubuntu, Fedora, openSUSE, and Arch.
+- Dropped the stale Ubuntu 24.04 build-host requirement from the AppImage and packaging documentation, and removed a reference to the deleted `package-all` target.
+
 ## 0.4.0 — 2026-09-30
 
 - Added About dialog accessible from header bar showing version, MIT license, GitHub link, and description.

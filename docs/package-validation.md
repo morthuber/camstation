@@ -12,13 +12,17 @@ make package-flatpak
 make validate-flatpak
 ```
 
-For a release candidate, also build the Flatpak bundle and the AppImage
-on its Ubuntu 24.04 build host. Retain SHA-256 checksums with released files.
+For a release candidate, also build the Flatpak bundle and the AppImage. The
+AppImage must be built on the oldest glibc host that the artifact has to run
+on; see the glibc baseline table in
+[`packaging/appimage/README.md`](../packaging/appimage/README.md). Retain
+SHA-256 checksums with released files.
 
 ## Functional matrix
 
 Run these checks for the native Nix package and Flatpak on Wayland and X11.
-Run the AppImage directly on Ubuntu 24.04 and through `appimage-run` on
+Run the AppImage directly on a distribution matching the oldest supported
+glibc baseline, on a current distribution, and through `appimage-run` on
 current NixOS.
 
 - Start with no existing configuration.

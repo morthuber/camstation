@@ -107,4 +107,5 @@ run_linuxdeploy --appdir "$appdir" --output appimage
 sha256sum "$output" > "$output.sha256"
 
 echo "Created artifact: $output"
-echo "Validate it on Ubuntu 24.04 and with appimage-run on current NixOS."
+echo "Built against glibc $(getconf GNU_LIBC_VERSION 2>/dev/null || echo unknown);"
+echo "validate it on that baseline, on a current distribution, and with appimage-run on NixOS."

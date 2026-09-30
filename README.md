@@ -135,8 +135,7 @@ make coverage-html  # HTML coverage report (opens in browser)
 make package-nix       # Build Nix package
 make package-flatpak   # Build Flatpak
 make bundle-flatpak    # Build Flatpak bundle (.flatpak file)
-make package-appimage  # Build AppImage (Ubuntu 24.04 x86_64 host)
-make package-all       # Build all three packages
+make package-appimage  # Build AppImage (oldest-supported glibc host)
 make validate-packages # Run validation checklist
 ```
 
@@ -168,7 +167,7 @@ flatpak run org.camstation.camstation
 The Flatpak has network, display, GPU, and audio access but no general host home-directory access. See [`flatpak/README.md`](flatpak/README.md) for details.
 
 ```sh
-# AppImage (Ubuntu 24.04 x86_64 build host)
+# AppImage (build on the oldest glibc host you need to support)
 make package-appimage
 ```
 See [`packaging/appimage/README.md`](packaging/appimage/README.md).
