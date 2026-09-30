@@ -636,19 +636,64 @@ fn begin_recovery(context: &ControllerContext, failed_generation: u64) {
 }
 
 fn mark_failed(context: &ControllerContext) {
-    let watchdog_source = {
+    let (watchdog_source, retry_delay, camera_key) = {
         let Some(inner) = context.inner.upgrade() else {
             return;
         };
         let mut inner = inner.borrow_mut();
         inner.desired_playing = false;
-        inner.watchdog_source.take()
+
+        // Cancel any pending recovery idle or retry timer.
+        if let Some(idle) = inner.recovery_idle.take() {
+            idle.remove();
+        }
+        if let Some(retry) = inner.retry_source.take() {
+            retry.remove();
+        }
+        let watchdog_source = inner.watchdog_source.take();
+
+        let delay = inner.backoff.next_delay();
+        let camera_key = inner.camera_key;
+        (watchdog_source, delay, camera_key)
     };
 
     if let Some(source) = watchdog_source {
         source.remove();
     }
     notify_state(context, PlaybackState::Failed);
+
+    // Schedule an automatic retry to recover from the Failed state.
+    // This ensures cameras that fail to build a pipeline (e.g., due to
+    // transient GStreamer resource exhaustion) are not permanently disabled.
+    tracing::info!(
+        camera = camera_key,
+        retry_seconds = retry_delay.as_secs(),
+        "scheduling retry after pipeline build failure"
+    );
+    let retry_context = context.clone();
+    let retry_source = gst::glib::timeout_add_local_once(retry_delay, move || {
+        let Some(inner) = retry_context.inner.upgrade() else {
+            return;
+        };
+        {
+            let mut inner = inner.borrow_mut();
+            inner.retry_source.take();
+            // If start() was called or the camera was stopped, skip retry.
+            if inner.desired_playing {
+                return;
+            }
+            inner.desired_playing = true;
+        }
+        install_watchdog(&retry_context);
+        start_generation(&retry_context);
+    });
+
+    // Store the retry SourceId so stop_controller can cancel it.
+    if let Some(inner) = context.inner.upgrade() {
+        inner.borrow_mut().retry_source = Some(retry_source);
+    } else {
+        retry_source.remove();
+    }
 }
 
 fn stop_controller(context: &ControllerContext) {
