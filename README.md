@@ -12,6 +12,10 @@ package baseline covers H.264, H.265, and MJPEG through GStreamer. Intel VA-API
 certification and long-running deployment soak testing remain
 environment-dependent follow-up work.
 
+![Camstation screenshot](screenshot.png)
+
+The demo streams shown in the screenshot use [Fake-RTSP-Stream](https://github.com/insight-platform/Fake-RTSP-Stream/) as an image source.
+
 ## Prerequisites
 
 The recommended environment is the included Nix flake:
