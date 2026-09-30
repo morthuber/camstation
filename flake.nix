@@ -120,6 +120,7 @@
               gst.gst-plugins-base
               gst.gst-plugins-good
               gst.gst-plugins-rs
+              gst.gst-plugins-ugly
             ];
 
             RUST_BACKTRACE = "1";
