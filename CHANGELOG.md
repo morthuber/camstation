@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.4 — 2026-10-07
+
+- Fixed the kiosk cursor remaining visible after unattended startup when the pointer is never moved.
+- Updated compatible Rust dependencies and upgraded the GTK, GStreamer, and serial-test bindings.
+- Replaced an unavailable linuxdeploy download pin so containerized AppImage builds work again.
+
 ## 0.4.3 — 2026-09-30
 
 - README now documents the full Flatpak and AppImage build procedures: SDK and Rust-extension setup, regenerating `cargo-sources.json`, bundling and installing, validation, and both AppImage build paths with their differing requirements.

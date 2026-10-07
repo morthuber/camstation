@@ -21,9 +21,9 @@ fetch() {
 }
 
 fetch \
-  "https://api.github.com/repos/linuxdeploy/linuxdeploy/releases/assets/538917371" \
+  "https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20251107-1/linuxdeploy-x86_64.AppImage" \
   "$tools_dir/linuxdeploy-x86_64.AppImage" \
-  "36a2d7e274d12e1050d0e9ecfe11d339ed54720b2bec464c286d53f8b07f5c62"
+  "c20cd71e3a4e3b80c3483cef793cda3f4e990aca14014d23c544ca3ce1270b4d"
 fetch \
   "https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/7a3fbc31a9e5075073ff8790f26effbac5f84453/linuxdeploy-plugin-gtk.sh" \
   "$tools_dir/linuxdeploy-plugin-gtk.sh" \

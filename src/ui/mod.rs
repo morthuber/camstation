@@ -3031,11 +3031,24 @@ mod tests {
         assert!(window.is_mapped());
         assert!(state.borrow().pointer_timeout.is_some());
 
-        // Let the startup timer expire without synthesizing any pointer motion.
+        // Let the startup timer expire without synthesizing pointer motion.
+        // GTK may deliver a late initial enter event as the fullscreen window
+        // settles, restarting the timer; allow for that startup event.
         let main_loop = gtk4::glib::MainLoop::new(None, false);
-        gtk4::glib::timeout_add_local_once(Duration::from_millis(3_200), {
+        let started = std::time::Instant::now();
+        gtk4::glib::timeout_add_local(Duration::from_millis(50), {
             let main_loop = main_loop.clone();
-            move || main_loop.quit()
+            let state = state.clone();
+            move || {
+                if state.borrow().pointer_timeout.is_none()
+                    || started.elapsed() >= Duration::from_secs(6)
+                {
+                    main_loop.quit();
+                    gtk4::glib::ControlFlow::Break
+                } else {
+                    gtk4::glib::ControlFlow::Continue
+                }
+            }
         });
         main_loop.run();
         assert!(state.borrow().pointer_timeout.is_none());
