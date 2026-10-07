@@ -479,6 +479,11 @@ fn build_loaded_main_window(
     });
     window.add_controller(motion);
 
+    window.connect_map({
+        let state = state.clone();
+        move |_| note_kiosk_pointer_activity(&state)
+    });
+
     window.connect_close_request({
         let state = state.clone();
         move |_| {
@@ -522,9 +527,6 @@ fn build_loaded_main_window(
     refresh_view_dropdown(&state);
     window.present();
     apply_current_view(&state);
-    if kiosk {
-        note_kiosk_pointer_activity(&state);
-    }
     state
 }
 
@@ -1652,7 +1654,7 @@ fn set_kiosk_mode(state: &Rc<RefCell<AppState>>, enabled: bool) {
                 window.fullscreen();
             } else {
                 window.unfullscreen();
-                window.set_cursor_from_name(None);
+                set_kiosk_cursor(&window, false);
             }
         }
     }
@@ -1667,7 +1669,7 @@ fn note_kiosk_pointer_activity(state: &Rc<RefCell<AppState>>) {
         return;
     }
     if let Some(window) = state_ref.window.upgrade() {
-        window.set_cursor_from_name(None);
+        set_kiosk_cursor(&window, false);
     }
     if let Some(timeout) = state_ref.pointer_timeout.take() {
         timeout.remove();
@@ -1684,10 +1686,23 @@ fn note_kiosk_pointer_activity(state: &Rc<RefCell<AppState>>) {
             if state.mode.kiosk()
                 && let Some(window) = state.window.upgrade()
             {
-                window.set_cursor_from_name(Some("none"));
+                set_kiosk_cursor(&window, true);
             }
         },
     ));
+}
+
+fn set_kiosk_cursor(window: &gtk4::ApplicationWindow, hidden: bool) {
+    window.set_cursor_from_name(hidden.then_some("none"));
+    // A stationary pointer may never produce a motion event to refresh GTK's
+    // widget cursor. Update the native surface as well so the change takes
+    // effect without moving the mouse (and restore it on activity/exit).
+    if let Some(surface) = window.surface() {
+        let cursor = hidden
+            .then(|| gtk4::gdk::Cursor::from_name("none", None))
+            .flatten();
+        surface.set_cursor(cursor.as_ref());
+    }
 }
 
 fn show_discard_layout_confirmation(state: &Rc<RefCell<AppState>>) {
@@ -2896,6 +2911,7 @@ mod tests {
         assert_camera_placement_workflow();
         assert_camera_and_view_managers_open();
         assert_kiosk_hides_management_controls();
+        assert_stationary_pointer_hides_on_kiosk_start();
     }
 
     fn assert_camera_placement_workflow() {
@@ -2998,6 +3014,55 @@ mod tests {
         let cameras = find_named_button(&root, "camera-manager-button").unwrap();
         assert!(!edit.is_mapped());
         assert!(!cameras.is_mapped());
+        window.close();
+        flush_main_context();
+    }
+
+    fn assert_stationary_pointer_hides_on_kiosk_start() {
+        let config = AppConfig {
+            kiosk_on_start: true,
+            ..AppConfig::default()
+        };
+        let (_application, window, _directory, state) = build_test_window_with_config(
+            "org.camstation.camstation.UiKioskCursorTest",
+            &["camstation"],
+            config,
+        );
+        assert!(window.is_mapped());
+        assert!(state.borrow().pointer_timeout.is_some());
+
+        // Let the startup timer expire without synthesizing any pointer motion.
+        let main_loop = gtk4::glib::MainLoop::new(None, false);
+        gtk4::glib::timeout_add_local_once(Duration::from_millis(3_200), {
+            let main_loop = main_loop.clone();
+            move || main_loop.quit()
+        });
+        main_loop.run();
+        assert!(state.borrow().pointer_timeout.is_none());
+        assert_eq!(
+            window.cursor().and_then(|cursor| cursor.name()).as_deref(),
+            Some("none")
+        );
+        assert_eq!(
+            window
+                .surface()
+                .and_then(|surface| surface.cursor())
+                .and_then(|cursor| cursor.name())
+                .as_deref(),
+            Some("none")
+        );
+
+        note_kiosk_pointer_activity(&state);
+        assert!(window.cursor().is_none());
+        assert!(window.surface().unwrap().cursor().is_none());
+        assert!(state.borrow().pointer_timeout.is_some());
+        set_kiosk_mode(&state, false);
+        assert!(window.cursor().is_none());
+        assert!(window.surface().unwrap().cursor().is_none());
+        assert!(state.borrow().pointer_timeout.is_none());
+        set_kiosk_mode(&state, true);
+        assert!(state.borrow().pointer_timeout.is_some());
+        assert!(window.surface().unwrap().cursor().is_none());
         window.close();
         flush_main_context();
     }
